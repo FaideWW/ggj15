@@ -219,7 +219,7 @@ function initCanvas(selector) {
                 return function (ctx) {
                     ctx.save();
 
-                    ctx.drawImage(image, imgx, imgy, imghw * 2, imghh * 2, x - hw, y - hh, hw * 2, hh * 2);
+                    ctx.drawImage(image, imgx | 0, imgy | 0, (imghw * 2) | 0, (imghh * 2) | 0, (x - hw) | 0, (y - hh) | 0, (hw * 2) | 0, (hh * 2) | 0);
 
                     ctx.restore();
                 }
@@ -253,17 +253,23 @@ function initCanvas(selector) {
         }
     }).bind(canvasObj);
 
-    canvasObj.drawEntities = (function (tilesheet, entities) {
-        var i, l, entity;
-        if (!tilesheet.__loaded) {
+    canvasObj.drawEnemies = (function (tilesheet, enemies) {
+        var i, l, enemy, enemysprite;
+        if (!tilesheet.__loaded || !enemies.data) {
             return;
         }
 
-
-        l = entities.length;
+        l = enemies.data.length;
 
         for (i = 0; i < l; i += 1) {
-            entity = entities[i];
+            enemy = enemies.data[i];
+
+            enemysprite = tilesheet.data[enemy.tileID];
+
+            this.drawSprite(
+                enemy.position.x, enemy.position.y, enemy.renderable.hw, enemy.renderable.hh,
+                tilesheet.image, enemysprite.x, enemysprite.y, enemysprite.w / 2, enemysprite.h / 2
+            );
         }
 
     }).bind(canvasObj);
@@ -417,11 +423,19 @@ function initTilemap(ctx, filepath, dict, thw, thh) {
     return tilemap;
 }
 
-function initPlayer(spritemap, hw, hh, x, y, maxv) {
+function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
     var player = {};
 
     player.facing = "down";
     player._spritemap = spritemap;
+    player._currentframe = 0;
+    player.frametime = 1000 / (animation_fps || 2);
+    player._timesince = 0;
+    player.moving = {
+        x: false,
+        y: false
+    };
+    player._motionstate = "idle";
 
     player.collidable = {
         hw: hw,
@@ -429,13 +443,13 @@ function initPlayer(spritemap, hw, hh, x, y, maxv) {
     };
 
     player.renderable = {
-        _tileID: player._spritemap[player.facing],
+        _tileID: player._spritemap[player._motionstate][player.facing][player._currentframe],
         hw: hw,
         hh: hh
     };
     player.position   = {
-        x: x || 0,
-        y: y || 0
+        x: pos.x || 0,
+        y: pos.y || 0
     };
 
     player.velocity   = {
@@ -480,6 +494,11 @@ function initPlayer(spritemap, hw, hh, x, y, maxv) {
         }
     }).bind(player);
 
+    player.changeDirection = (function (dir) {
+        this.facing = dir;
+        this.renderable._tileID = this._spritemap[this._motionstate][this.facing][this._currentframe];
+    }).bind(player);
+
     player.update = (function (dt) {
         // clamp maxv
 
@@ -494,20 +513,36 @@ function initPlayer(spritemap, hw, hh, x, y, maxv) {
         this.position.x += ((this.velocity.x * dt) / 1000) | 0;
         this.position.y += ((this.velocity.y * dt) / 1000) | 0;
 
+        this._timesince += dt;
+        if (this._timesince > this.frametime) {
+            this._timesince = this._timesince % this.frametime;
+            this._currentframe = (this._currentframe + 1) % this._spritemap[this._motionstate][this.facing].length;
+
+        }
+
+        this.renderable._tileID = this._spritemap[this._motionstate][this.facing][this._currentframe];
+
         if (this.velocity.y < 0) {
-            this.facing = "up";
+            this.changeDirection("up");
+            this.moving.y = true;
         } else if (this.velocity.y > 0) {
-            this.facing = "down";
+            this.changeDirection("down");
+            this.moving.y = true;
+        } else {
+            this.moving.y = false;
         }
 
         if (this.velocity.x < 0) {
-            this.facing = "left";
+            this.changeDirection("left");
+            this.moving.x = true;
         } else if (this.velocity.x > 0) {
-            this.facing = "right";
+            this.changeDirection("right");
+            this.moving.x = true;
+        } else {
+            this.moving.x = false;
         }
 
-        this.renderable._tileID = this._spritemap[this.facing];
-
+        this._motionstate = (this.moving.x || this.moving.y) ? "motion" : "idle";
 
 
     }).bind(player);
@@ -518,6 +553,7 @@ function initPlayer(spritemap, hw, hh, x, y, maxv) {
         }
         collidables.walls.collide(this, collidables);
         collidables.triggers.collide(this, collidables);
+        collidables.enemies.collide(this, collidables);
 
 
     }).bind(player);
@@ -682,8 +718,6 @@ function initTriggers(map, t) {
                     hw: map.halfwidth,
                     hh: map.halfheight
                 };
-                console.log(t[i].src.y, t[i].src.x);
-                console.log(triggers.triggermap);
             }
 
             triggers.data = t;
@@ -739,7 +773,111 @@ function initTriggers(map, t) {
     };
 
     return triggers;
+}
 
+function initEnemies(map, e) {
+    var enemies = {},
+        loadEnemies = function (map, e) {
+            var i, l;
+            enemies.data = e;
+            l = e.length;
+
+            for (i = 0; i < l; i += 1) {
+                enemies.data[i].tileID = enemies.data[i].sprite[0];
+                enemies.data[i].velocity = {
+                    x: 0,
+                    y: 0
+                };
+                enemies.data[i].maxv = 64;
+                enemies.data[i].renderable = {
+                    frametime: 1000 / (e[i].fps || 10),
+                    hw:  e[i].size.hw,
+                    hh:  e[i].size.hh,
+                    _timesince: 0,
+                    _currentframe: 0
+                }
+            }
+        };
+
+    if (!map.__loaded) {
+        window.setTimeout(function () {
+            loadEnemies(map, e);
+        }, 100);
+        console.log('map not loaded yet; waiting 100ms');
+    } else {
+        loadEnemies(map, e);
+    }
+
+
+    enemies.update = (function (dt, player) {
+        var i, l, enemy, player_dist_squared, velocity_mag, scale;
+
+        if (!this.data) {
+            return;
+        }
+
+        l = this.data.length;
+        for (i = 0; i < l; i += 1) {
+            enemy = this.data[i];
+
+            // animation update
+
+            enemy.renderable._timesince += dt;
+            if (enemy.renderable._timesince > enemy.renderable.frametime) {
+                enemy.renderable._timesince = enemy.renderable._timesince % enemy.renderable.frametime;
+                enemy.renderable._currentframe = (enemy.renderable._currentframe + 1) % enemy.sprite.length;
+                enemy.tileID = enemy.sprite[enemy.renderable._currentframe];
+            }
+
+
+            // follow logic update
+
+            // determine proximity to player
+            player_dist_squared = ((enemy.position.x - player.position.x) * (enemy.position.x - player.position.x)) + ((enemy.position.y - player.position.y) * (enemy.position.y - player.position.y));
+
+                enemy.velocity.x = (player.position.x - enemy.position.x);
+                enemy.velocity.y = (player.position.y - enemy.position.y);
+
+                velocity_mag = Math.sqrt((enemy.velocity.x * enemy.velocity.x) + (enemy.velocity.y * enemy.velocity.y));
+                scale = velocity_mag / enemy.maxv;
+
+                if (scale > 1) {
+                    enemy.velocity.x /= (scale * scale);
+                    enemy.velocity.y /= (scale * scale);
+                } else {
+                    enemy.velocity.x *= scale;
+                    enemy.velocity.x *= scale;
+                }
+
+            // physics update
+            enemy.position.x += enemy.velocity.x * dt / 1000;
+            enemy.position.y += enemy.velocity.y * dt / 1000;
+
+        }
+    }).bind(enemies);
+
+    enemies.collide = (function (player) {
+        var i, l, enemy, collision;
+
+        if (!this.data) {
+            return;
+        }
+
+        l = this.data.length;
+
+        for (i = 0; i < l; i += 1) {
+            enemy = this.data[i];
+
+
+            collision = collideBoundingBoxes(enemy.position, player.position, enemy.size, player.collidable);
+
+            if (collision !== false) {
+                console.log('lose!');
+            }
+        }
+    }).bind(enemies);
+
+    return enemies;
 }
 
 var tilemap = {
@@ -759,13 +897,13 @@ var tilemap = {
         lastTime = 0,
         currentTime = 0,
         timeSince = 0,
-        dt;
+        dt, tile;
 
     $(document).ready(function () {
         var canvas, camera, map, tiles, input,
             step,
             player,
-            entities, triggers, walls, collidables;
+            enemies, triggers, walls, collidables;
         $('#message').text('What do we do now?');
 
         canvas = initCanvas('#canvas');
@@ -779,12 +917,33 @@ var tilemap = {
         tilemap = initTilemap(__PRELOADCANVAS.ctx, "img/map.png", tilemap, 32, 32);
         tiles = initTilesheet("img/tiles.png", 4, 4);
 
+        tile = function (y, x) {
+            // returns worldspace coordinates for tilemap coordinates (the center of the tile)
+            return {
+                x: ((x * 2) + 1) * tilemap.halfwidth,
+                y: ((y * 2) + 1) * tilemap.halfheight
+            }
+        };
+
+
         player = initPlayer({
-            "down":  9,
-            "left":  10,
-            "up":    11,
-            "right": 12
-        }, 16, 16, (5 * 64) + 32, (6 * 64) + 32, 256);
+            "motion": {
+                "down":  [9,  18, 9,  18, 9,  18],
+                "left":  [10, 19, 10, 19, 10, 19],
+                "up":    [11, 20, 11, 20, 11, 20],
+                "right": [12, 21, 12, 21, 12, 21]
+            },
+            "idle": {
+                "down":  [9,  9,  9,  9,  9,  27],
+                "left":  [10, 10, 10, 10, 10, 28],
+                "up":    [11, 11, 11, 11, 11, 29],
+                "right": [12, 12, 12, 12, 12, 30]
+            }
+
+
+
+        }, 16, 16, tile(1, 0), 256);
+
 
         input = initInput({
             "w": player.up,
@@ -793,7 +952,7 @@ var tilemap = {
             "d": player.right
         });
 
-        entities = [];
+        enemies = [];
         triggers = [];
         collidables = {};
         walls    = initWalls(tilemap, wall_tiles);
@@ -872,20 +1031,32 @@ var tilemap = {
         });
 
 
-
+        // enemies
+        enemies.push({
+            sprite: [36,37],
+            fps: 10,
+            position: tile(1,5),
+            size: {
+                hw: 16,
+                hh: 16
+            }
+        });
 
 
 
 
         triggers = initTriggers(tilemap, triggers);
+        enemies  = initEnemies(tilemap, enemies);
 
         // --------------------------------------------
 
         collidables.triggers = triggers;
+        collidables.enemies  = enemies;
 
         window.canvas = canvas;
         window.map    = tilemap;
         window.walls  = walls;
+        window.enemies = enemies;
 
         // game loop
         step = function () {
@@ -898,6 +1069,7 @@ var tilemap = {
 
                 input.processInput();
                 player.update(dt);
+                enemies.update(dt, player);
 
                 player.collide(tilemap, collidables);
 
@@ -906,7 +1078,7 @@ var tilemap = {
                 camera.follow(player.position);
 
                 canvas.drawMap(tiles, tilemap);
-                canvas.drawEntities(tiles, entities);
+                canvas.drawEnemies(tiles, enemies);
                 canvas.drawPlayer(tiles, player);
                 canvas.render(camera);
                 timeSince = timeSince % frametime;
