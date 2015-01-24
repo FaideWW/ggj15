@@ -3,17 +3,6 @@
  */
 
 
-var tilemap = {
-    data: [
-        ['x', 'x', 'x'],
-        ['x', ' ', 'x'],
-        ['x', ' ', 'x']
-    ],
-    halfwidth: 32,
-    halfheight: 32
-};
-
-
 
 
 
@@ -118,6 +107,57 @@ function initCamera(x, y) {
     };
 }
 
+function initTilemap(canvas, filepath, dict, thw, thh) {
+    var image = new Image,
+        padZero = function (num, pad) {
+            return new Array(pad + 1 - (num + '').length).join('0') + num;
+        },
+        tilemap = {
+            data: [[]],
+            halfwidth: thw,
+            halfheight: thh
+        };
+
+    image.onload = function () {
+        var data, i, l, r, g, b, hexcolor,
+            row = -1;
+        // instantaneous, should never be seen
+        canvas.ctx.drawImage(image, 0, 0, image.width, image.height);
+
+        data = canvas.ctx.getImageData(0, 0, image.width, image.height).data;
+        l = data.length;
+
+        for (i = 0; i < l; i += 4) {
+            r = padZero(data[i    ].toString(16), 2);
+            g = padZero(data[i + 1].toString(16), 2);
+            b = padZero(data[i + 2].toString(16), 2);
+
+            hexcolor = r + g + b;
+
+            if (i % (image.width * 4) === 0) {
+                tilemap.data.push([]);
+                row += 1;
+            }
+
+            if (dict.hasOwnProperty(hexcolor)) {
+                tilemap.data[row].push(dict[hexcolor]);
+            } else {
+                tilemap.data[row].push(' ');
+            }
+        }
+
+        canvas.clear();
+
+    };
+
+    image.src = filepath;
+
+    return tilemap;
+}
+
+var tilemap = {
+    "ffffff": 'x'
+};
 
 
 (function ($) {
@@ -129,7 +169,7 @@ function initCamera(x, y) {
         dt;
 
     $(document).ready(function () {
-        var canvas, camera,
+        var canvas, camera, map,
             step,
             box1, box2;
         $('#message').text('Hello world!');
@@ -150,8 +190,11 @@ function initCamera(x, y) {
             y: 30
         };
 
+        map = initTilemap(canvas, "img/map.png", tilemap, 32, 32);
+
 
         window.canvas = canvas;
+        window.map    = map;
 
         // game loop
         step = function () {
@@ -168,7 +211,7 @@ function initCamera(x, y) {
                 //canvas.drawRect(box1.x, box1.y, 10, 10);
                 //canvas.drawRect(box2.x, box2.y, 10, 10);
 
-                canvas.drawMap(tilemap);
+                canvas.drawMap(map);
 
                 canvas.render(camera);
             }
@@ -177,6 +220,7 @@ function initCamera(x, y) {
 
             window.requestAnimFrame(step);
         };
+
         step();
 
     });
