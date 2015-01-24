@@ -310,10 +310,15 @@ function initCanvas(selector) {
 }
 
 function initCamera(x, y) {
-    return {
-        x: x,
-        y: y
-    };
+    var camera = {};
+    camera.x = x;
+    camera.y = y;
+    camera.follow = (function (target) {
+        camera.x = target.x;
+        camera.y = target.y;
+    }).bind(camera);
+
+    return camera;
 }
 
 function initTilesheet(filepath, thw, thh) {
@@ -751,7 +756,7 @@ var tilemap = {
         tilemap = initTilemap(__PRELOADCANVAS.ctx, "img/map.png", tilemap, 32, 32);
         tiles = initTilesheet("img/tiles.png", 4, 4);
 
-        player = initPlayer(2, 16, 16, 32, (2 * 64) + 30);
+        player = initPlayer(2, 16, 16, 32, (2 * 64) + 30, 256);
 
         input = initInput({
             "w": player.up,
@@ -773,27 +778,58 @@ var tilemap = {
         triggers.push({
             type: 'lock',
             src:  {
-                x: 0, y: 9, z: 1 // button
+                y: 5, x: 0, z: 1 // button
             },
             target:{
-                x: 1, y: 1, z: 1 // door
+                y: 1, x: 1, z: 1 // door
             },
             state: 0,
             sprites: [3,4]
         });
-
-
-
-
-
-
-
-
-
-
-
-
-
+        triggers.push({
+            type: 'lock',
+            src:  {
+                y: 8, x: 7, z: 1 // button
+            },
+            target:{
+                y: 6, x: 0, z: 1 // door
+            },
+            state: 0,
+            sprites: [3,4]
+        });
+        triggers.push({
+            type: 'lock',
+            src:  {
+                y: 7, x: 0, z: 1 // button
+            },
+            target:{
+                y: 8, x: 6, z: 1 // door
+            },
+            state: 0,
+            sprites: [3,4]
+        });
+        triggers.push({
+            type: 'lock',
+            src:  {
+                y: 7, x: 2, z: 1 // button
+            },
+            target:{
+                y: 8, x: 0, z: 1 // door
+            },
+            state: 0,
+            sprites: [3,4]
+        });
+        triggers.push({
+            type: 'lock',
+            src:  {
+                y: 9, x: 0, z: 1 // button
+            },
+            target:{
+                y: 6, x: 2, z: 1 // door
+            },
+            state: 0,
+            sprites: [3,4]
+        });
 
 
 
@@ -827,6 +863,7 @@ var tilemap = {
 
                 player.collide(tilemap, collidables);
 
+                camera.follow(player.position);
 
                 canvas.drawMap(tiles, tilemap);
                 canvas.drawEntities(tiles, entities);
