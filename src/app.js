@@ -1,6 +1,22 @@
 /**
  * Created by faide on 1/23/2015.
  */
+
+
+var tilemap = {
+    data: [
+        ['x', 'x', 'x'],
+        ['x', ' ', 'x'],
+        ['x', ' ', 'x']
+    ],
+    halfwidth: 32,
+    halfheight: 32
+};
+
+
+
+
+
 window.requestAnimFrame = (function(){
     return  window.requestAnimationFrame       ||
         window.webkitRequestAnimationFrame ||
@@ -60,9 +76,25 @@ function initCanvas(selector) {
         );
     }).bind(canvasObj);
 
-    canvasObj.render = (function () {
+    canvasObj.drawMap = (function (tilemap) {
+        var x, y, h, w;
+        h = tilemap.data.length;
+        for (y = 0; y < h; y += 1) {
+            w = tilemap.data[y].length;
+            for (x = 0; x < w; x += 1) {
+                if (tilemap.data[y][x] === 'x') {
+                    this.drawRect(((x * 2) + 1) * tilemap.halfwidth, ((y * 2) + 1) * tilemap.halfheight, tilemap.halfwidth, tilemap.halfheight);
+                }
+            }
+        }
+    }).bind(canvasObj);
+
+    canvasObj.render = (function (camera) {
         // stroke queue first, then fill queue
         this.clear();
+
+        this.ctx.save();
+        this.ctx.translate(-(camera.x) + (this.width / 2), -(camera.y) + (this.height / 2));
 
         while (this.strokeQueue.length) {
             this.strokeQueue.shift()(this.ctx);
@@ -72,10 +104,21 @@ function initCanvas(selector) {
             this.fillQueue.shift()(this.ctx);
         }
 
+        this.ctx.restore();
+
     }).bind(canvasObj);
 
     return canvasObj;
 }
+
+function initCamera(x, y) {
+    return {
+        x: x,
+        y: y
+    };
+}
+
+
 
 (function ($) {
     var fps = 60,
@@ -86,11 +129,13 @@ function initCanvas(selector) {
         dt;
 
     $(document).ready(function () {
-        var canvas, step,
+        var canvas, camera,
+            step,
             box1, box2;
         $('#message').text('Hello world!');
 
         canvas = initCanvas('#canvas');
+        camera = initCamera(canvas.width / 2, canvas.height / 2);
 
         canvas.clear();
 
@@ -120,9 +165,12 @@ function initCanvas(selector) {
                 box1.x += 0.1;
                 box2.x += 0.2;
 
-                canvas.drawRect(box1.x, box1.y, 10, 10);
-                canvas.drawRect(box2.x, box2.y, 10, 10);
-                canvas.render();
+                //canvas.drawRect(box1.x, box1.y, 10, 10);
+                //canvas.drawRect(box2.x, box2.y, 10, 10);
+
+                canvas.drawMap(tilemap);
+
+                canvas.render(camera);
             }
 
             lastTime = currentTime;
