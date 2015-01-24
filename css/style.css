@@ -1,6 +1,4 @@
 canvas#canvas {
-    width: 1280px;
-    height: 720px;
     image-rendering: optimizeSpeed;             /* Older versions of FF */
     image-rendering: -moz-crisp-edges;              /* FF 6.0+ */
     image-rendering: -webkit-optimize-contrast;     /* Webkit (non standard naming) */

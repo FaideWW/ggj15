@@ -1,6 +1,14 @@
 /**
  * Created by faide on 1/23/2015.
  */
+window.requestAnimFrame = (function(){
+    return  window.requestAnimationFrame       ||
+        window.webkitRequestAnimationFrame ||
+        window.mozRequestAnimationFrame    ||
+        function( callback ){
+            window.setTimeout(callback, 1000 / 60);
+        };
+})();
 
 function initCanvas(selector) {
     var $canvas = $(selector),
@@ -10,20 +18,19 @@ function initCanvas(selector) {
         return null;
     }
     canvasObj = {
-        el: $canvas,
-        ctx: $canvas[0].getContext('2d'),
-        width: $canvas.width(),
-        height: $canvas.height()
+        el:          $canvas,
+        ctx:         $canvas[0].getContext('2d'),
+        width:       $canvas.width(),
+        height:      $canvas.height(),
+        strokeQueue: [],
+        fillQueue:   []
     };
 
     //--------------------- defaults
     canvasObj._clearcolor                       = "rgba(0, 0, 0, 1)";
-    canvasObj._strokewidth                      = 2;
     canvasObj._fillstyle                        = "rgba(255, 255, 255, 1)";
-    canvasObj._strokestyle                      = "rgba(255, 255, 0, 1)";
     canvasObj.ctx.webkitImageSmoothingEnabled   = false;
     canvasObj.ctx.mozImageSmoothingEnabled      = false;
-
 
 
     // -------------------- functions
@@ -36,27 +43,34 @@ function initCanvas(selector) {
         this.ctx.fillstyle  = oldfill;
     }).bind(canvasObj);
 
-    canvasObj.drawRect = (function (x, y, hw, hh, fill, stroke, strokeWidth) {
-        var oldfill, oldstroke, oldstrokewidth;
+    canvasObj.drawRect = (function (x, y, hw, hh, fill) {
+        this.fillQueue.push(
+            (function (x, y, hw, hh, fill) {
+                return function (ctx) {
+                    // cache the previous values so they can be restored later
+                    ctx.save();
 
-        // cache the previous values so they can be restored later
-        oldfill = this.ctx.fillStyle;
-        oldstroke = this.ctx.strokeStyle;
-        oldstrokewidth = this.ctx.strokeWidth;
+                    ctx.fillStyle = fill;
+                    //ctx.translate(x - hw, y - hh);
+                    ctx.fillRect(x - hw, y - hh, hw * 2, hh * 2);
 
+                    ctx.restore();
+                };
+            }(x, y, hw, hh, fill || this._fillstyle))
+        );
+    }).bind(canvasObj);
 
-        this.ctx.fillStyle = fill || this._fillstyle;
-        this.ctx.strokeStyle = stroke || this._strokestyle;
-        this.ctx.strokeWidth = strokeWidth || this._strokewidth;
+    canvasObj.render = (function () {
+        // stroke queue first, then fill queue
+        this.clear();
 
-        this.ctx.strokeRect(x - hw, y - hw, hw * 2, hh * 2);
-        this.ctx.fillRect(x - hw, y - hw, hw * 2, hh * 2);
+        while (this.strokeQueue.length) {
+            this.strokeQueue.shift()(this.ctx);
+        }
 
-
-        this.ctx.fillStyle = oldfill;
-        this.ctx.strokeStyle = oldstroke;
-        this.ctx.strokeWidth = oldstrokewidth;
-
+        while (this.fillQueue.length) {
+            this.fillQueue.shift()(this.ctx);
+        }
 
     }).bind(canvasObj);
 
@@ -64,19 +78,59 @@ function initCanvas(selector) {
 }
 
 (function ($) {
+    var fps = 60,
+        frametime = 1000 / fps,
+        lastTime = 0,
+        currentTime = 0,
+        timeSince = 0,
+        dt;
 
     $(document).ready(function () {
-        var canvas;
+        var canvas, step,
+            box1, box2;
         $('#message').text('Hello world!');
 
         canvas = initCanvas('#canvas');
 
         canvas.clear();
 
-        canvas.drawRect(50, 50, 10, 10);
-        canvas.drawRect(70, 50, 10, 10);
+
+        box1 = {
+            x: 10,
+            y: 10
+        };
+
+        box2 = {
+            x: 10,
+            y: 30
+        };
+
 
         window.canvas = canvas;
+
+        // game loop
+        step = function () {
+            console.log('stepping');
+            currentTime = new Date().getTime();
+            dt = currentTime - lastTime;
+            timeSince += dt;
+
+            if (timeSince >= frametime) {
+                // step
+                box1.x += 0.1;
+                box2.x += 0.2;
+
+                canvas.drawRect(box1.x, box1.y, 10, 10);
+                canvas.drawRect(box2.x, box2.y, 10, 10);
+                canvas.render();
+            }
+
+            lastTime = currentTime;
+
+            window.requestAnimFrame(step);
+        };
+        step();
+
     });
 
 }(jQuery));
