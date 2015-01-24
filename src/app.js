@@ -13,6 +13,113 @@ window.requestAnimFrame = (function(){
         };
 })();
 
+function findPossibleTiles(player, data) {
+    var possible_tiles = [],
+        minx, miny, maxx, maxy,
+        tile, x, y;
+
+    minx = player.position.x - player.collidable.hw;
+    miny = player.position.y - player.collidable.hh;
+    maxx = player.position.x + player.collidable.hw;
+    maxy = player.position.y + player.collidable.hh;
+
+    x = Math.floor(minx / (map.halfwidth * 2));
+    y = Math.floor(miny / (map.halfheight * 2));
+    // top left
+    tile = data[y][x];
+
+    if (tile > 0) {
+        possible_tiles.push({
+            pos: {
+                x: ((x * 2) + 1) * map.halfwidth,
+                y: ((y * 2) + 1) * map.halfheight
+            },
+            aabb: {
+                hw: map.halfwidth,
+                hh: map.halfheight
+            },
+            index: {
+                x: x,
+                y: y
+            },
+            tileID: tile
+        });
+    }
+
+    x = Math.floor(maxx / (map.halfwidth * 2));
+    y = Math.floor(miny / (map.halfheight * 2));
+    // top right
+    tile = data[y][x];
+
+    if (tile > 0) {
+        possible_tiles.push({
+            pos: {
+                x: ((x * 2) + 1) * map.halfwidth,
+                y: ((y * 2) + 1) * map.halfheight
+            },
+            aabb: {
+                hw: map.halfwidth,
+                hh: map.halfheight
+            },
+            index: {
+                x: x,
+                y: y
+            },
+            tileID: tile
+        });
+    }
+
+    x = Math.floor(minx / (map.halfwidth * 2));
+    y = Math.floor(maxy / (map.halfheight * 2));
+
+    // bottom left
+    tile = data[y][x];
+
+    if (tile > 0) {
+        possible_tiles.push({
+            pos: {
+                x: ((x * 2) + 1) * map.halfwidth,
+                y: ((y * 2) + 1) * map.halfheight
+            },
+            aabb: {
+                hw: map.halfwidth,
+                hh: map.halfheight
+            },
+            index: {
+                x: x,
+                y: y
+            },
+            tileID: tile
+        });
+    }
+
+    x = Math.floor(maxx / (map.halfwidth * 2));
+    y = Math.floor(maxy / (map.halfheight * 2));
+
+    // bottom right
+    tile = data[y][x];
+
+    if (tile > 0) {
+        possible_tiles.push({
+            pos: {
+                x: ((x * 2) + 1) * map.halfwidth,
+                y: ((y * 2) + 1) * map.halfheight
+            },
+            aabb: {
+                hw: map.halfwidth,
+                hh: map.halfheight
+            },
+            index: {
+                x: x,
+                y: y
+            },
+            tileID: tile
+        });
+    }
+
+    return possible_tiles;
+}
+
 function collideBoundingBoxes(pos1, pos2, aabb1, aabb2) {
     var c1 = {
             minx: pos1.x - aabb1.hw,
@@ -121,27 +228,44 @@ function initCanvas(selector) {
     }).bind(canvasObj);
 
     canvasObj.drawMap = (function (tilesheet, map) {
-        var x, y, h, w, tile;
+        var i, x, y, h, w, tile;
         if (!tilesheet.__loaded) {
             return;
         }
 
-        h = map.data.length;
-        for (y = 0; y < h; y += 1) {
-            w = map.data[y].length;
-            for (x = 0; x < w; x += 1) {
-                if (map.data[y][x] !== ' ' && tilesheet.data[tilemap.data[y][x]]) {
-                    tile = tilesheet.data[tilemap.data[y][x]];
-                    this.drawSprite(
-                        ((x * 2) + 1) * map.halfwidth, ((y * 2) + 1) * map.halfheight,
-                        map.halfwidth, map.halfheight,
-                        tilesheet.image,
-                        tile.x, tile.y,
-                        tile.w / 2, tile.h / 2
-                    );
+        for (i = 0; i < 3; i += 1) {
+            h = map.data[i].length;
+            for (y = 0; y < h; y += 1) {
+                w = map.data[i][y].length;
+                for (x = 0; x < w; x += 1) {
+                    if (map.data[i][y][x] !== ' ' && tilesheet.data[map.data[i][y][x]]) {
+                        tile = tilesheet.data[map.data[i][y][x]];
+                        this.drawSprite(
+                            ((x * 2) + 1) * map.halfwidth, ((y * 2) + 1) * map.halfheight,
+                            map.halfwidth, map.halfheight,
+                            tilesheet.image,
+                            tile.x, tile.y,
+                            tile.w / 2, tile.h / 2
+                        );
+                    }
                 }
             }
         }
+    }).bind(canvasObj);
+
+    canvasObj.drawEntities = (function (tilesheet, entities) {
+        var i, l, entity;
+        if (!tilesheet.__loaded) {
+            return;
+        }
+
+
+        l = entities.length;
+
+        for (i = 0; i < l; i += 1) {
+            entity = entities[i];
+        }
+
     }).bind(canvasObj);
 
     canvasObj.drawPlayer = (function (tilesheet, player) {
@@ -235,13 +359,13 @@ function initTilemap(ctx, filepath, dict, thw, thh) {
         },
         tilemap = {
             __loaded: false,
-            data: [[]],
+            data: [[[]], [[]], [[]]], // 3 layers
             halfwidth: thw,
             halfheight: thh
         };
 
     image.onload = function () {
-        var data, i, l, r, g, b, hexcolor,
+        var data, i, l, r, g, b,
             row = -1;
         // instantaneous, should never be seen
         ctx.drawImage(image, 0, 0, image.width, image.height);
@@ -254,17 +378,29 @@ function initTilemap(ctx, filepath, dict, thw, thh) {
             g = padZero(data[i + 1].toString(16), 2);
             b = padZero(data[i + 2].toString(16), 2);
 
-            hexcolor = r + g + b;
-
             if (i % (image.width * 4) === 0) {
-                tilemap.data.push([]);
+                tilemap.data[0].push([]);
+                tilemap.data[1].push([]);
+                tilemap.data[2].push([]);
                 row += 1;
             }
 
-            if (dict.hasOwnProperty(hexcolor)) {
-                tilemap.data[row].push(dict[hexcolor]);
+            if (dict.hasOwnProperty(r)) {
+                tilemap.data[0][row].push(dict[r]);
             } else {
-                tilemap.data[row].push(' ');
+                tilemap.data[0][row].push(' ');
+            }
+
+            if (dict.hasOwnProperty(g)) {
+                tilemap.data[1][row].push(dict[g]);
+            } else {
+                tilemap.data[1][row].push(' ');
+            }
+
+            if (dict.hasOwnProperty(b)) {
+                tilemap.data[2][row].push(dict[b]);
+            } else {
+                tilemap.data[2][row].push(' ');
             }
         }
 
@@ -276,7 +412,7 @@ function initTilemap(ctx, filepath, dict, thw, thh) {
     return tilemap;
 }
 
-function initPlayer(tileNum, hw, hh, x, y) {
+function initPlayer(tileNum, hw, hh, x, y, maxv) {
     var player = {};
 
     player.collidable = {
@@ -294,129 +430,70 @@ function initPlayer(tileNum, hw, hh, x, y) {
         y: y || 0
     };
 
+    player.velocity   = {
+        x: 0,
+        y: 0
+    };
+
+    player.maxv = maxv || 128;
+
     // functions
 
-    player.left = (function() {
-        this.position.x -= 1;
+    player.left = (function(keystate) {
+        if (keystate) {
+            this.velocity.x += -this.maxv;
+        } else {
+            this.velocity.x -= -this.maxv;
+        }
     }).bind(player);
 
-    player.right = (function () {
-        this.position.x += 1;
+    player.right = (function (keystate) {
+        if (keystate) {
+            this.velocity.x += this.maxv;
+        } else {
+            this.velocity.x -= this.maxv;
+        }
     }).bind(player);
 
-    player.up = (function () {
-        this.position.y -= 1;
+    player.up = (function (keystate) {
+        if (keystate) {
+            this.velocity.y += -this.maxv;
+        } else {
+            this.velocity.y -= -this.maxv;
+        }
     }).bind(player);
 
-    player.down = (function () {
-        this.position.y += 1;
+    player.down = (function (keystate) {
+        if (keystate) {
+            this.velocity.y += this.maxv;
+        } else {
+            this.velocity.y -= this.maxv;
+        }
+    }).bind(player);
+
+    player.update = (function (dt) {
+        // clamp maxv
+
+        var velocity_magnitude = Math.sqrt(this.x * this.x + this.y * this.y),
+            scale = velocity_magnitude / scale;
+
+        if (scale > 1) {
+            this.velocity.x /= scale;
+            this.velocity.y /= scale;
+        }
+
+        this.position.x += ((this.velocity.x * dt) / 1000) | 0;
+        this.position.y += ((this.velocity.y * dt) / 1000) | 0;
+
+
     }).bind(player);
 
     player.collide = (function (map, collidables) {
-        // assumes the player collidable is smaller than the tile collidable (a tile cannot be entirely inside the player)
-        // at most we test 4 tiles
-        var minx, miny, maxx, maxy, tile, x, y, possible_tiles = [],
-            i, collision_manifold;
-
         if (!map.__loaded) {
             return;
         }
-
-        minx = player.position.x - player.collidable.hw;
-        miny = player.position.y - player.collidable.hh;
-        maxx = player.position.x + player.collidable.hw;
-        maxy = player.position.y + player.collidable.hh;
-
-        // top left
-        x = Math.floor(minx / (map.halfwidth * 2));
-        y = Math.floor(miny / (map.halfheight * 2));
-        tile = map.data[y][x];
-
-        if (collidables.indexOf(tile) !== -1) {
-            possible_tiles.push({
-                pos: {
-                    x: ((x * 2) + 1) * map.halfwidth,
-                    y: ((y * 2) + 1) * map.halfheight
-                },
-                aabb: {
-                    hw: map.halfwidth,
-                    hh: map.halfheight
-                }
-            });
-
-        }
-
-        // top right
-        x = Math.floor(maxx / (map.halfwidth * 2));
-        y = Math.floor(miny / (map.halfheight * 2));
-        tile = map.data[y][x];
-
-        if (collidables.indexOf(tile) !== -1) {
-            possible_tiles.push({
-                pos: {
-                    x: ((x * 2) + 1) * map.halfwidth,
-                    y: ((y * 2) + 1) * map.halfheight
-                },
-                aabb: {
-                    hw: map.halfwidth,
-                    hh: map.halfheight
-                }
-            });
-        }
-
-        // bottom left
-        x = Math.floor(minx / (map.halfwidth * 2));
-        y = Math.floor(maxy / (map.halfheight * 2));
-        tile = map.data[y][x];
-
-        if (collidables.indexOf(tile) !== -1) {
-            possible_tiles.push({
-                pos: {
-                    x: ((x * 2) + 1) * map.halfwidth,
-                    y: ((y * 2) + 1) * map.halfheight
-                },
-                aabb: {
-                    hw: map.halfwidth,
-                    hh: map.halfheight
-                }
-            });
-        }
-
-        // bottom right
-        x = Math.floor(maxx / (map.halfwidth * 2));
-        y = Math.floor(maxy / (map.halfheight * 2));
-        tile = map.data[y][x];
-
-        if (collidables.indexOf(tile) !== -1) {
-            possible_tiles.push({
-                pos: {
-                    x: ((x * 2) + 1) * map.halfwidth,
-                    y: ((y * 2) + 1) * map.halfheight
-                },
-                aabb: {
-                    hw: map.halfwidth,
-                    hh: map.halfheight
-                }
-            });
-        }
-
-        for (i = 0; i < possible_tiles.length; i += 1) {
-
-            collision_manifold = collideBoundingBoxes(player.position, possible_tiles[i].pos, player.collidable, possible_tiles[i].aabb);
-
-            if (collision_manifold !== false) {
-                // collision!
-                if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
-                    player.position.x -= collision_manifold.x;
-                } else {
-                    player.position.y -= collision_manifold.y;
-                }
-
-                //recollide
-                this.collide(map, collidables);
-            }
-        }
-
+        collidables.walls.collide(this, collidables);
+        collidables.triggers.collide(this, collidables);
 
 
     }).bind(player);
@@ -441,25 +518,38 @@ function initInput(key_bindings) {
             83: "s",
             68: "d",
             32: "space"
-        };
+        },
+        keydownqueue = [],
+        keyupqueue = [];
 
     window.addEventListener('keydown', function (event) {
-        if (keymap[event.keyCode]) {
+        if (keymap[event.keyCode] && input.keys[keymap[event.keyCode]] !== true) {
             input.keys[keymap[event.keyCode]] = true;
+            keydownqueue.push(keymap[event.keyCode]);
+
         }
     });
 
     window.addEventListener('keyup', function (event) {
         if (keymap[event.keyCode]) {
             input.keys[keymap[event.keyCode]] = false;
+            keyupqueue.push(keymap[event.keyCode]);
         }
     });
 
     input.processInput = (function () {
         var key;
-        for (key in this.keys) {
-            if (this.keys.hasOwnProperty(key) && this.keys[key] === true && this.bindings[key]) {
-                this.bindings[key]();
+        while (keydownqueue.length) {
+            key = keydownqueue.shift();
+            if (this.bindings[key]) {
+                this.bindings[key](true);
+            }
+        }
+
+        while (keyupqueue.length) {
+            key = keyupqueue.shift();
+            if (this.bindings[key]) {
+                this.bindings[key](false);
             }
         }
     }).bind(input);
@@ -467,12 +557,172 @@ function initInput(key_bindings) {
     return input;
 }
 
+function initWalls(map, tileIDs) {
+    var walls = {},
+        loadWalls = function (map, tileIDs) {
+            var y, x, w, h, layer;
+
+            walls.wallmap = [[]];
+
+            for (layer = 0; layer < 3; layer += 1) {
+                h = map.data[layer].length;
+                for (y = 0; y < h; y += 1) {
+                    w = map.data[layer][y].length;
+                    for (x = 0; x < w; x += 1) {
+                        if (tileIDs.indexOf(map.data[layer][y][x]) !== -1) {
+                            walls.wallmap[y][x] = 1;
+                        } else if (walls.wallmap[y][x] === undefined) {
+                            walls.wallmap[y][x] = 0;
+                        }
+                    }
+                    if (walls.wallmap[y + 1] === undefined) {
+                        walls.wallmap[y + 1] = [];
+                    }
+                }
+            }
+
+        };
+
+    if (!map.__loaded) {
+        window.setTimeout(function () {
+            loadWalls(map, tileIDs);
+        }, 100);
+        console.log('map not loaded yet; waiting 100ms');
+    } else {
+        loadWalls(map, tileIDs);
+    }
+
+
+    walls.collide = function(player, collidables) {
+
+        // assumes the player collidable is smaller than the tile collidable (a tile cannot be entirely inside the player)
+        // at most we test 4 tiles
+        var wallmap,
+            possible_tiles,
+            i, collision_manifold;
+
+        wallmap = collidables.walls.wallmap;
+
+        if (!wallmap || !wallmap.length) {
+            return;
+        }
+
+        possible_tiles = findPossibleTiles(player, wallmap);
+
+
+        for (i = 0; i < possible_tiles.length; i += 1) {
+
+            collision_manifold = collideBoundingBoxes(player.position, possible_tiles[i].pos, player.collidable, possible_tiles[i].aabb);
+
+            if (collision_manifold !== false) {
+                // collision!
+                if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
+                    player.position.x -= collision_manifold.x;
+                } else {
+                    player.position.y -= collision_manifold.y;
+                }
+                //break;
+                // TODO: solve edge collision issues on multi-tile walls
+            }
+        }
+    };
+
+    return walls;
+}
+
+function initTriggers(map, t) {
+    var triggers = {},
+
+        loadTriggers = function (map, t) {
+            var i, l, y, x, w, h;
+
+            triggers.triggermap = [];
+            h = map.data[0].length;
+            for (y = 0; y < h; y += 1) {
+                triggers.triggermap[y] = [];
+                w = map.data[0].length;
+                for (x = 0; x < w; x += 1) {
+                    triggers.triggermap[y][x] = 0;
+                }
+            }
+            l = t.length;
+
+            // set up positions
+            for (i = 0; i < l; i += 1) {
+                triggers.triggermap[t[i].src.y][t[i].src.x] = i + 1;
+                t[i].pos = {
+                    x: (t[i].src.x * 2 + 1) * map.halfwidth,
+                    y: (t[i].src.y * 2 + 1) * map.halfheight
+                };
+                t[i].aabb = {
+                    hw: map.halfwidth,
+                    hh: map.halfheight
+                };
+                console.log(t[i].src.y, t[i].src.x);
+                console.log(triggers.triggermap);
+            }
+
+            triggers.data = t;
+        };
+
+    if (!map.__loaded) {
+        window.setTimeout(function () {
+            loadTriggers(map, t);
+        }, 100);
+        console.log('map not loaded yet; waiting 100ms');
+    } else {
+        loadTriggers(map, t);
+    }
+
+    triggers.collide = function (player, collidables) {
+
+        var triggermap, data, wallmap, possible_tiles, i, collision_manifold, trigger;
+
+        triggermap = collidables.triggers.triggermap;
+        data       = collidables.triggers.data;
+        wallmap    = collidables.walls.wallmap;
+
+        if (!triggermap || !triggermap.length) {
+            return;
+        }
+
+        possible_tiles = findPossibleTiles(player, triggermap);
+
+        for (i = 0; i < possible_tiles.length; i += 1) {
+
+
+            collision_manifold = collideBoundingBoxes(player.position, possible_tiles[i].pos, player.collidable, possible_tiles[i].aabb);
+
+            if (collision_manifold !== false) {
+                // collision!
+
+                trigger = data[possible_tiles[i].tileID - 1];
+
+                if (trigger.type === 'lock' && trigger.state !== 1) {
+                    trigger.state = 1;
+                    map.data[trigger.src.z][trigger.src.y][trigger.src.x] = trigger.sprites[trigger.state];
+                    map.data[trigger.target.z][trigger.target.y][trigger.target.x] = "00";
+                    wallmap[trigger.target.y][trigger.target.x] = 0;
+                }
+
+            }
+        }
+
+    };
+
+    return triggers;
+
+}
 
 var tilemap = {
-        "ffffff": 1,
-        "000000": 0
+        "ff": 1,
+        "01": 0,
+        "02": 3,
+        "03": 4,
+        "04": 5,
+        "05": 6
     },
-    collidable_tiles = [1];
+    wall_tiles = [1, 5];
 
 
 (function ($) {
@@ -486,7 +736,8 @@ var tilemap = {
     $(document).ready(function () {
         var canvas, camera, map, tiles, input,
             step,
-            player;
+            player,
+            entities, triggers, walls, collidables;
         $('#message').text('What do we do now?');
 
         canvas = initCanvas('#canvas');
@@ -500,7 +751,7 @@ var tilemap = {
         tilemap = initTilemap(__PRELOADCANVAS.ctx, "img/map.png", tilemap, 32, 32);
         tiles = initTilesheet("img/tiles.png", 4, 4);
 
-        player = initPlayer(2, 16, 16, 80, 80);
+        player = initPlayer(2, 16, 16, 32, (2 * 64) + 30);
 
         input = initInput({
             "w": player.up,
@@ -509,13 +760,61 @@ var tilemap = {
             "d": player.right
         });
 
+        entities = [];
+        triggers = [];
+        collidables = {};
+        walls    = initWalls(tilemap, wall_tiles);
+        collidables.walls = walls;
+
+
+        // --------------------- put map logic here
+
+        // link button->door triggers
+        triggers.push({
+            type: 'lock',
+            src:  {
+                x: 0, y: 9, z: 1 // button
+            },
+            target:{
+                x: 1, y: 1, z: 1 // door
+            },
+            state: 0,
+            sprites: [3,4]
+        });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        triggers = initTriggers(tilemap, triggers);
+
+        // --------------------------------------------
+
+        collidables.triggers = triggers;
 
         window.canvas = canvas;
         window.map    = tilemap;
+        window.walls  = walls;
 
         // game loop
         step = function () {
-            console.log('stepping');
             currentTime = new Date().getTime();
             dt = currentTime - lastTime;
             timeSince += dt;
@@ -524,10 +823,13 @@ var tilemap = {
                 // step
 
                 input.processInput();
+                player.update(dt);
 
-                player.collide(tilemap, collidable_tiles);
+                player.collide(tilemap, collidables);
+
 
                 canvas.drawMap(tiles, tilemap);
+                canvas.drawEntities(tiles, entities);
                 canvas.drawPlayer(tiles, player);
                 canvas.render(camera);
                 timeSince = timeSince % frametime;
