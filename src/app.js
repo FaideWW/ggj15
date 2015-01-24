@@ -417,8 +417,11 @@ function initTilemap(ctx, filepath, dict, thw, thh) {
     return tilemap;
 }
 
-function initPlayer(tileNum, hw, hh, x, y, maxv) {
+function initPlayer(spritemap, hw, hh, x, y, maxv) {
     var player = {};
+
+    player.facing = "down";
+    player._spritemap = spritemap;
 
     player.collidable = {
         hw: hw,
@@ -426,7 +429,7 @@ function initPlayer(tileNum, hw, hh, x, y, maxv) {
     };
 
     player.renderable = {
-        _tileID: tileNum,
+        _tileID: player._spritemap[player.facing],
         hw: hw,
         hh: hh
     };
@@ -439,6 +442,7 @@ function initPlayer(tileNum, hw, hh, x, y, maxv) {
         x: 0,
         y: 0
     };
+
 
     player.maxv = maxv || 128;
 
@@ -489,6 +493,21 @@ function initPlayer(tileNum, hw, hh, x, y, maxv) {
 
         this.position.x += ((this.velocity.x * dt) / 1000) | 0;
         this.position.y += ((this.velocity.y * dt) / 1000) | 0;
+
+        if (this.velocity.y < 0) {
+            this.facing = "up";
+        } else if (this.velocity.y > 0) {
+            this.facing = "down";
+        }
+
+        if (this.velocity.x < 0) {
+            this.facing = "left";
+        } else if (this.velocity.x > 0) {
+            this.facing = "right";
+        }
+
+        this.renderable._tileID = this._spritemap[this.facing];
+
 
 
     }).bind(player);
@@ -708,6 +727,10 @@ function initTriggers(map, t) {
                     map.data[trigger.src.z][trigger.src.y][trigger.src.x] = trigger.sprites[trigger.state];
                     map.data[trigger.target.z][trigger.target.y][trigger.target.x] = "00";
                     wallmap[trigger.target.y][trigger.target.x] = 0;
+                } else if (trigger.type === 'goal' && trigger.state !== 1) {
+                    trigger.state = 1;
+                    map.data[trigger.src.z][trigger.src.y][trigger.src.x] = "00";
+                    trigger.action();
                 }
 
             }
@@ -756,7 +779,12 @@ var tilemap = {
         tilemap = initTilemap(__PRELOADCANVAS.ctx, "img/map.png", tilemap, 32, 32);
         tiles = initTilesheet("img/tiles.png", 4, 4);
 
-        player = initPlayer(2, 16, 16, 32, (2 * 64) + 30, 256);
+        player = initPlayer({
+            "down":  9,
+            "left":  10,
+            "up":    11,
+            "right": 12
+        }, 16, 16, (5 * 64) + 32, (6 * 64) + 32, 256);
 
         input = initInput({
             "w": player.up,
@@ -831,7 +859,17 @@ var tilemap = {
             sprites: [3,4]
         });
 
-
+        // goal/win state trigger
+        triggers.push({
+            type: 'goal',
+            src: {
+                y: 5, x: 4, z: 1 // coin
+            },
+            state: 0,
+            action: function () {
+                console.log('win!');
+            }
+        });
 
 
 
@@ -862,6 +900,8 @@ var tilemap = {
                 player.update(dt);
 
                 player.collide(tilemap, collidables);
+
+                $('#debug').text('player.facing:' +  player.facing);
 
                 camera.follow(player.position);
 
