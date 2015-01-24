@@ -2,9 +2,7 @@
  * Created by faide on 1/23/2015.
  */
 
-
-
-
+var __PRELOADCANVAS = null;
 
 window.requestAnimFrame = (function(){
     return  window.requestAnimationFrame       ||
@@ -14,6 +12,48 @@ window.requestAnimFrame = (function(){
             window.setTimeout(callback, 1000 / 60);
         };
 })();
+
+function collideBoundingBoxes(pos1, pos2, aabb1, aabb2) {
+    var c1 = {
+            minx: pos1.x - aabb1.hw,
+            maxx: pos1.x + aabb1.hw,
+            miny: pos1.y - aabb1.hh,
+            maxy: pos1.y + aabb1.hh
+        },
+        c2 = {
+            minx: pos2.x - aabb2.hw,
+            maxx: pos2.x + aabb2.hw,
+            miny: pos2.y - aabb2.hh,
+            maxy: pos2.y + aabb2.hh
+        },
+        diffx = null,
+        diffy = null;
+    if (c1.minx < c2.minx && c1.maxx > c2.minx)  {
+        // c1 is to the left of c2, and intersecting on the x axis
+        diffx = c1.maxx - c2.minx;
+    } else if (c1.minx >= c2.minx && c1.minx <= c2.maxx) {
+        // c1 is to the right of c2, and intersecting on the x axis
+        diffx = c1.minx - c2.maxx;
+    }
+
+    if (c1.miny < c2.miny && c1.maxy > c2.miny) {
+        // c1 is above c2, and intersecting on the y axis
+        diffy = c1.maxy - c2.miny;
+    } else if (c1.miny >= c2.miny && c1.miny <= c2.maxy) {
+        // c1 is below c2, and intersecting on the y axis
+        diffy = c1.miny - c2.maxy;
+    }
+
+    if (diffx === null || diffy === null) {
+        return false;
+    }
+
+    return {
+        x: diffx,
+        y: diffy
+    };
+
+}
 
 function initCanvas(selector) {
     var $canvas = $(selector),
@@ -28,7 +68,8 @@ function initCanvas(selector) {
         width:       $canvas.width(),
         height:      $canvas.height(),
         strokeQueue: [],
-        fillQueue:   []
+        fillQueue:   [],
+        spriteQueue:   []
     };
 
     //--------------------- defaults
@@ -65,17 +106,57 @@ function initCanvas(selector) {
         );
     }).bind(canvasObj);
 
-    canvasObj.drawMap = (function (tilemap) {
-        var x, y, h, w;
-        h = tilemap.data.length;
+    canvasObj.drawSprite = (function (x, y, hw, hh, image, imgx, imgy, imghw, imghh){
+        this.spriteQueue.push(
+            (function (x, y, hw, hh, image, imgx, imgy, imghw, imghh) {
+                return function (ctx) {
+                    ctx.save();
+
+                    ctx.drawImage(image, imgx, imgy, imghw * 2, imghh * 2, x - hw, y - hh, hw * 2, hh * 2);
+
+                    ctx.restore();
+                }
+            }(x, y, hw, hh, image, imgx, imgy, imghw, imghh))
+        );
+    }).bind(canvasObj);
+
+    canvasObj.drawMap = (function (tilesheet, map) {
+        var x, y, h, w, tile;
+        if (!tilesheet.__loaded) {
+            return;
+        }
+
+        h = map.data.length;
         for (y = 0; y < h; y += 1) {
-            w = tilemap.data[y].length;
+            w = map.data[y].length;
             for (x = 0; x < w; x += 1) {
-                if (tilemap.data[y][x] === 'x') {
-                    this.drawRect(((x * 2) + 1) * tilemap.halfwidth, ((y * 2) + 1) * tilemap.halfheight, tilemap.halfwidth, tilemap.halfheight);
+                if (map.data[y][x] !== ' ' && tilesheet.data[tilemap.data[y][x]]) {
+                    tile = tilesheet.data[tilemap.data[y][x]];
+                    this.drawSprite(
+                        ((x * 2) + 1) * map.halfwidth, ((y * 2) + 1) * map.halfheight,
+                        map.halfwidth, map.halfheight,
+                        tilesheet.image,
+                        tile.x, tile.y,
+                        tile.w / 2, tile.h / 2
+                    );
                 }
             }
         }
+    }).bind(canvasObj);
+
+    canvasObj.drawPlayer = (function (tilesheet, player) {
+        //debugger;
+
+        if (!tilesheet.__loaded) {
+            return;
+        }
+
+        var playersprite = tilesheet.data[player.renderable._tileID];
+
+        this.drawSprite(
+            player.position.x, player.position.y, player.renderable.hw, player.renderable.hh,
+            tilesheet.image, playersprite.x, playersprite.y, playersprite.w / 2, playersprite.h / 2
+        );
     }).bind(canvasObj);
 
     canvasObj.render = (function (camera) {
@@ -93,6 +174,10 @@ function initCanvas(selector) {
             this.fillQueue.shift()(this.ctx);
         }
 
+        while (this.spriteQueue.length) {
+            this.spriteQueue.shift()(this.ctx);
+        }
+
         this.ctx.restore();
 
     }).bind(canvasObj);
@@ -107,12 +192,49 @@ function initCamera(x, y) {
     };
 }
 
-function initTilemap(canvas, filepath, dict, thw, thh) {
+function initTilesheet(filepath, thw, thh) {
+    var tiles = {
+            __loaded: false,
+            data: [],
+            halfwidth: thw,
+            halfheight: thh,
+            image: new Image()
+        },
+        tw = thw * 2,
+        th = thh * 2,
+        numrows, numcols, x, y;
+
+    tiles.image.onload = function () {
+        numrows = tiles.image.width / (tw + 1);
+        numcols = tiles.image.height/ (th + 1);
+
+        for (y = 0; y < numrows; y += 1) {
+            for (x = 0; x < numcols; x += 1) {
+                tiles.data.push({
+                    x: (x * 9),
+                    y: (y * 9),
+                    w: tw,
+                    h: th
+                });
+            }
+        }
+        tiles.__loaded = true;
+    };
+
+    tiles.image.src = filepath;
+
+
+
+    return tiles;
+}
+
+function initTilemap(ctx, filepath, dict, thw, thh) {
     var image = new Image,
         padZero = function (num, pad) {
             return new Array(pad + 1 - (num + '').length).join('0') + num;
         },
         tilemap = {
+            __loaded: false,
             data: [[]],
             halfwidth: thw,
             halfheight: thh
@@ -122,9 +244,9 @@ function initTilemap(canvas, filepath, dict, thw, thh) {
         var data, i, l, r, g, b, hexcolor,
             row = -1;
         // instantaneous, should never be seen
-        canvas.ctx.drawImage(image, 0, 0, image.width, image.height);
+        ctx.drawImage(image, 0, 0, image.width, image.height);
 
-        data = canvas.ctx.getImageData(0, 0, image.width, image.height).data;
+        data = ctx.getImageData(0, 0, image.width, image.height).data;
         l = data.length;
 
         for (i = 0; i < l; i += 4) {
@@ -146,8 +268,7 @@ function initTilemap(canvas, filepath, dict, thw, thh) {
             }
         }
 
-        canvas.clear();
-
+        tilemap.__loaded = true;
     };
 
     image.src = filepath;
@@ -155,9 +276,203 @@ function initTilemap(canvas, filepath, dict, thw, thh) {
     return tilemap;
 }
 
+function initPlayer(tileNum, hw, hh, x, y) {
+    var player = {};
+
+    player.collidable = {
+        hw: hw,
+        hh: hh
+    };
+
+    player.renderable = {
+        _tileID: tileNum,
+        hw: hw,
+        hh: hh
+    };
+    player.position   = {
+        x: x || 0,
+        y: y || 0
+    };
+
+    // functions
+
+    player.left = (function() {
+        this.position.x -= 1;
+    }).bind(player);
+
+    player.right = (function () {
+        this.position.x += 1;
+    }).bind(player);
+
+    player.up = (function () {
+        this.position.y -= 1;
+    }).bind(player);
+
+    player.down = (function () {
+        this.position.y += 1;
+    }).bind(player);
+
+    player.collide = (function (map, collidables) {
+        // assumes the player collidable is smaller than the tile collidable (a tile cannot be entirely inside the player)
+        // at most we test 4 tiles
+        var minx, miny, maxx, maxy, tile, x, y, possible_tiles = [],
+            i, collision_manifold;
+
+        if (!map.__loaded) {
+            return;
+        }
+
+        minx = player.position.x - player.collidable.hw;
+        miny = player.position.y - player.collidable.hh;
+        maxx = player.position.x + player.collidable.hw;
+        maxy = player.position.y + player.collidable.hh;
+
+        // top left
+        x = Math.floor(minx / (map.halfwidth * 2));
+        y = Math.floor(miny / (map.halfheight * 2));
+        tile = map.data[y][x];
+
+        if (collidables.indexOf(tile) !== -1) {
+            possible_tiles.push({
+                pos: {
+                    x: ((x * 2) + 1) * map.halfwidth,
+                    y: ((y * 2) + 1) * map.halfheight
+                },
+                aabb: {
+                    hw: map.halfwidth,
+                    hh: map.halfheight
+                }
+            });
+
+        }
+
+        // top right
+        x = Math.floor(maxx / (map.halfwidth * 2));
+        y = Math.floor(miny / (map.halfheight * 2));
+        tile = map.data[y][x];
+
+        if (collidables.indexOf(tile) !== -1) {
+            possible_tiles.push({
+                pos: {
+                    x: ((x * 2) + 1) * map.halfwidth,
+                    y: ((y * 2) + 1) * map.halfheight
+                },
+                aabb: {
+                    hw: map.halfwidth,
+                    hh: map.halfheight
+                }
+            });
+        }
+
+        // bottom left
+        x = Math.floor(minx / (map.halfwidth * 2));
+        y = Math.floor(maxy / (map.halfheight * 2));
+        tile = map.data[y][x];
+
+        if (collidables.indexOf(tile) !== -1) {
+            possible_tiles.push({
+                pos: {
+                    x: ((x * 2) + 1) * map.halfwidth,
+                    y: ((y * 2) + 1) * map.halfheight
+                },
+                aabb: {
+                    hw: map.halfwidth,
+                    hh: map.halfheight
+                }
+            });
+        }
+
+        // bottom right
+        x = Math.floor(maxx / (map.halfwidth * 2));
+        y = Math.floor(maxy / (map.halfheight * 2));
+        tile = map.data[y][x];
+
+        if (collidables.indexOf(tile) !== -1) {
+            possible_tiles.push({
+                pos: {
+                    x: ((x * 2) + 1) * map.halfwidth,
+                    y: ((y * 2) + 1) * map.halfheight
+                },
+                aabb: {
+                    hw: map.halfwidth,
+                    hh: map.halfheight
+                }
+            });
+        }
+
+        for (i = 0; i < possible_tiles.length; i += 1) {
+
+            collision_manifold = collideBoundingBoxes(player.position, possible_tiles[i].pos, player.collidable, possible_tiles[i].aabb);
+
+            if (collision_manifold !== false) {
+                // collision!
+                if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
+                    player.position.x -= collision_manifold.x;
+                } else {
+                    player.position.y -= collision_manifold.y;
+                }
+
+                //recollide
+                this.collide(map, collidables);
+            }
+        }
+
+
+
+    }).bind(player);
+
+    return player;
+}
+
+function initInput(key_bindings) {
+    var input = {
+            keys: {
+                "w": false,
+                "a": false,
+                "s": false,
+                "d": false,
+                "space": false
+            },
+            bindings: key_bindings
+        },
+        keymap = {
+            87: "w",
+            65: "a",
+            83: "s",
+            68: "d",
+            32: "space"
+        };
+
+    window.addEventListener('keydown', function (event) {
+        if (keymap[event.keyCode]) {
+            input.keys[keymap[event.keyCode]] = true;
+        }
+    });
+
+    window.addEventListener('keyup', function (event) {
+        if (keymap[event.keyCode]) {
+            input.keys[keymap[event.keyCode]] = false;
+        }
+    });
+
+    input.processInput = (function () {
+        var key;
+        for (key in this.keys) {
+            if (this.keys.hasOwnProperty(key) && this.keys[key] === true && this.bindings[key]) {
+                this.bindings[key]();
+            }
+        }
+    }).bind(input);
+
+    return input;
+}
+
+
 var tilemap = {
-    "ffffff": 'x'
-};
+        "ffffff": 1,
+        "000000": 0
+    },
+    collidable_tiles = [1];
 
 
 (function ($) {
@@ -169,32 +484,34 @@ var tilemap = {
         dt;
 
     $(document).ready(function () {
-        var canvas, camera, map,
+        var canvas, camera, map, tiles, input,
             step,
-            box1, box2;
-        $('#message').text('Hello world!');
+            player;
+        $('#message').text('What do we do now?');
 
         canvas = initCanvas('#canvas');
+        __PRELOADCANVAS = initCanvas('#preload');
         camera = initCamera(canvas.width / 2, canvas.height / 2);
+
 
         canvas.clear();
 
 
-        box1 = {
-            x: 10,
-            y: 10
-        };
+        tilemap = initTilemap(__PRELOADCANVAS.ctx, "img/map.png", tilemap, 32, 32);
+        tiles = initTilesheet("img/tiles.png", 4, 4);
 
-        box2 = {
-            x: 10,
-            y: 30
-        };
+        player = initPlayer(2, 16, 16, 80, 80);
 
-        map = initTilemap(canvas, "img/map.png", tilemap, 32, 32);
+        input = initInput({
+            "w": player.up,
+            "a": player.left,
+            "s": player.down,
+            "d": player.right
+        });
 
 
         window.canvas = canvas;
-        window.map    = map;
+        window.map    = tilemap;
 
         // game loop
         step = function () {
@@ -205,15 +522,15 @@ var tilemap = {
 
             if (timeSince >= frametime) {
                 // step
-                box1.x += 0.1;
-                box2.x += 0.2;
 
-                //canvas.drawRect(box1.x, box1.y, 10, 10);
-                //canvas.drawRect(box2.x, box2.y, 10, 10);
+                input.processInput();
 
-                canvas.drawMap(map);
+                player.collide(tilemap, collidable_tiles);
 
+                canvas.drawMap(tiles, tilemap);
+                canvas.drawPlayer(tiles, player);
                 canvas.render(camera);
+                timeSince = timeSince % frametime;
             }
 
             lastTime = currentTime;
