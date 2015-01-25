@@ -472,7 +472,7 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
     player._motionstate = "idle";
     player.attacking = false;
     player.weapon = null;
-
+    player.hp     = 10;
 
     player.collidable = {
         hw: hw,
@@ -493,6 +493,14 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
         x: 0,
         y: 0
     };
+
+    // tangential velocity that overrides movement
+    player.knockback  = {
+        x: 0,
+        y: 0
+    };
+
+    player._invulnerable = 0;
 
 
     player.maxv = maxv || 128;
@@ -576,8 +584,51 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
             }
         }
 
-        this.position.x += ((this.velocity.x * dt) / 1000) | 0;
-        this.position.y += ((this.velocity.y * dt) / 1000) | 0;
+        this._invulnerable = Math.max(0, this._invulnerable - dt);
+
+        if (this.knockback.x === 0 && this.knockback.y === 0) {
+            this.position.x += ((this.velocity.x * dt) / 1000) | 0;
+            this.position.y += ((this.velocity.y * dt) / 1000) | 0;
+
+
+            if (this.velocity.y < 0) {
+                this.changeDirection("up");
+                this.moving.y = true;
+            } else if (this.velocity.y > 0) {
+                this.changeDirection("down");
+                this.moving.y = true;
+            } else {
+                this.moving.y = false;
+            }
+
+            if (this.velocity.x < 0) {
+                this.changeDirection("left");
+                this.moving.x = true;
+            } else if (this.velocity.x > 0) {
+                this.changeDirection("right");
+                this.moving.x = true;
+            } else {
+                this.moving.x = false;
+            }
+
+            this._motionstate = (this.moving.x || this.moving.y) ? "motion" : "idle";
+
+
+        } else {
+            this.position.x += ((this.knockback.x * dt) / 1000) | 0;
+            this.position.y += ((this.knockback.y * dt) / 1000) | 0;
+
+            this.knockback.x *= 0.8;
+            this.knockback.y *= 0.8;
+
+            if (Math.abs(this.knockback.x) < 10) {
+                this.knockback.x = 0;
+            }
+
+            if (Math.abs(this.knockback.y) < 10) {
+                this.knockback.y = 0;
+            }
+        }
 
         this._timesince += dt;
         if (this._timesince > this.frametime) {
@@ -588,30 +639,32 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
 
         this.renderable._tileID = this._spritemap[this._motionstate][this.facing][this._currentframe];
 
-        if (this.velocity.y < 0) {
-            this.changeDirection("up");
-            this.moving.y = true;
-        } else if (this.velocity.y > 0) {
-            this.changeDirection("down");
-            this.moving.y = true;
-        } else {
-            this.moving.y = false;
-        }
-
-        if (this.velocity.x < 0) {
-            this.changeDirection("left");
-            this.moving.x = true;
-        } else if (this.velocity.x > 0) {
-            this.changeDirection("right");
-            this.moving.x = true;
-        } else {
-            this.moving.x = false;
-        }
-
-        this._motionstate = (this.moving.x || this.moving.y) ? "motion" : "idle";
-
 
     }).bind(player);
+
+    player.hit = (function (enemy, collision_manifold) {
+        if (this._invulnerable === 0) {
+            this.hp--;
+            // received hit from enemy
+            if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
+                player.knockback.x = collision_manifold.x / Math.abs(collision_manifold.x) * 500;
+                if (collision_manifold.x < 0) {
+                    this.changeDirection("right");
+                } else {
+                    this.changeDirection("left");
+                }
+            } else {
+                player.knockback.y = collision_manifold.y / Math.abs(collision_manifold.y) * 500;
+                if (collision_manifold.y < 0) {
+                    this.changeDirection("down");
+                } else {
+                    this.changeDirection("up");
+                }
+            }
+            this._invulnerable = 500;
+        }
+
+    });
 
     player.collide = (function (map, collidables) {
         if (!map.__loaded) {
@@ -854,6 +907,11 @@ function initEnemies(map, e) {
                     x: 0,
                     y: 0
                 };
+                enemies.data[i].knockback = {
+                    x: 0,
+                    y: 0
+                };
+                enemies.data[i]._invulnerable = 0;
                 enemies.data[i].maxv = 64;
                 enemies.data[i].renderable = {
                     frametime: 1000 / (e[i].fps || 10),
@@ -861,7 +919,30 @@ function initEnemies(map, e) {
                     hh:  e[i].size.hh,
                     _timesince: 0,
                     _currentframe: 0
-                }
+                };
+
+                enemies.data[i].hit = (function (damage, collision_manifold) {
+                    console.log(this._invulnerable);
+                    if (this._invulnerable === 0) {
+                        this.hp -= damage;
+                        this._invulnerable = 100;
+                        console.log(this.hp);
+                        if (this.hp <= 0) {
+                            this.kill();
+                        }
+                        // received hit from enemy
+                        if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
+                            this.knockback.x = collision_manifold.x / Math.abs(collision_manifold.x) * 200;
+                        } else {
+                            this.knockback.y = collision_manifold.y / Math.abs(collision_manifold.y) * 200;
+                        }
+                    }
+                }).bind(enemies.data[i]);
+
+                enemies.data[i].kill = (function () {
+                    var index = enemies.data.indexOf(this);
+                    enemies.data.splice(index, 1);
+                }).bind(enemies.data[i]);
             }
         };
 
@@ -882,11 +963,13 @@ function initEnemies(map, e) {
             return;
         }
 
+
         l = this.data.length;
         for (i = 0; i < l; i += 1) {
             enemy = this.data[i];
 
             // animation update
+            enemy._invulnerable = Math.max(0, enemy._invulnerable - dt);
 
             enemy.renderable._timesince += dt;
             if (enemy.renderable._timesince > enemy.renderable.frametime) {
@@ -915,15 +998,32 @@ function initEnemies(map, e) {
                 enemy.velocity.x *= scale;
             }
 
-            // physics update
-            enemy.position.x += enemy.velocity.x * dt / 1000;
-            enemy.position.y += enemy.velocity.y * dt / 1000;
+            if (enemy.knockback.x === 0 && enemy.knockback.y === 0) {
+                // physics update
+                enemy.position.x += enemy.velocity.x * dt / 1000;
+                enemy.position.y += enemy.velocity.y * dt / 1000;
+            } else {
+                enemy.position.x += ((enemy.knockback.x * dt) / 1000) | 0;
+                enemy.position.y += ((enemy.knockback.y * dt) / 1000) | 0;
+
+                enemy.knockback.x *= 0.8;
+                enemy.knockback.y *= 0.8;
+
+                if (Math.abs(enemy.knockback.x) < 10) {
+                    enemy.knockback.x = 0;
+                }
+
+                if (Math.abs(enemy.knockback.y) < 10) {
+                    enemy.knockback.y = 0;
+                }
+            }
+
 
         }
     }).bind(enemies);
 
     enemies.collide = (function (player) {
-        var i, l, enemy, collision;
+        var i, l, enemy, collision, weaponpos;
 
         if (!this.data) {
             return;
@@ -935,19 +1035,53 @@ function initEnemies(map, e) {
             enemy = this.data[i];
 
 
+            // player collision
             collision = collideBoundingBoxes(enemy.position, player.position, enemy.size, player.collidable);
 
             if (collision !== false) {
-                console.log('lose!');
+                player.hit(enemy, collision);
+                //console.log('lose!');
             }
+
+            if (player.weapon && player.attacking) {
+                if (player.facing === "right") {
+                    weaponpos = {
+                        x: player.position.x + player.renderable.hw + player.weapon.position.x,
+                        y: player.position.y + player.weapon.position.y
+                    };
+                } else if (player.facing === "left") {
+                    weaponpos = {
+                        x: player.position.x - player.renderable.hw + player.weapon.position.x,
+                        y: player.position.y + player.weapon.position.y
+                    };
+                } else if (player.facing === "up") {
+                    weaponpos = {
+                        x: player.position.x + player.weapon.position.x,
+                        y: player.position.y - player.renderable.hh + player.weapon.position.y
+                    };
+                } else if (player.facing === "down") {
+                    weaponpos = {
+                        x: player.position.x + player.weapon.position.x,
+                        y: player.position.y + player.renderable.hh + player.weapon.position.y
+                    };
+                }
+                collision = collideBoundingBoxes(weaponpos, enemy.position, player.weapon.collidable, enemy.size);
+
+                if (collision !== false) {
+                    enemy.hit(player.weapon.damage, collision);
+                }
+            }
+
+
         }
     }).bind(enemies);
 
     return enemies;
 }
 
-function initWeapon(animation, renderable, hitbox, speed, damage, offset, currentDir) {
+function initWeapon(name, animation, renderable, hitbox, speed, damage, offset, currentDir) {
     var weapon = {
+        id: name,
         frames: animation,
         hitbox: hitbox,
         damage: damage,
@@ -1033,7 +1167,8 @@ var tilemap = {
         "02": 3,
         "03": 4,
         "04": 5,
-        "05": 6
+        "05": 6,
+        "06": 7
     },
     wall_tiles = [1, 5];
 
@@ -1178,11 +1313,23 @@ var tilemap = {
             }
         });
 
+        triggers.push({
+            type: 'goal',
+            src: {
+                y: 1, x: 8, z: 1 // dagger
+            },
+            state: 0,
+            action: function () {
+                player.equip(dagger);
+            }
+        });
+
 
         // enemies
         enemies.push({
             sprite: [36,37],
             fps: 10,
+            hp:  10,
             position: tile(1,5),
             size: {
                 hw: 16,
@@ -1193,12 +1340,12 @@ var tilemap = {
 
 
         // weapons
-        dagger = initWeapon(
+        dagger = initWeapon( "dagger",
             {
-                "right": [13, 14, 15],
-                "up": [22, 23, 24],
-                "left": [31, 32, 33],
-                "down": [40, 41, 42]
+                "right": [13, 14, 15, 16],
+                "up": [22, 23, 24, 25],
+                "left": [31, 32, 33, 34],
+                "down": [40, 41, 42, 43]
             },
             {
                 hw: 16,
@@ -1208,20 +1355,24 @@ var tilemap = {
                 "right": [
                     { hw: 2, hh: 2 },
                     { hw: 4, hh: 4 },
+                    { hw: 4, hh: 4 },
                     { hw: 2, hh: 2 }
                 ],
                 "up": [
                     { hw: 2, hh: 2 },
+                    { hw: 4, hh: 4 },
                     { hw: 4, hh: 4 },
                     { hw: 2, hh: 2 }
                 ],
                 "left": [
                     { hw: 2, hh: 2 },
                     { hw: 4, hh: 4 },
+                    { hw: 4, hh: 4 },
                     { hw: 2, hh: 2 }
                 ],
                 "down": [
                     { hw: 2, hh: 2 },
+                    { hw: 4, hh: 4 },
                     { hw: 4, hh: 4 },
                     { hw: 2, hh: 2 }
                 ]
@@ -1233,10 +1384,12 @@ var tilemap = {
                     [
                         { x: 16, y: 0 },
                         { x: 16, y: 0 },
+                        { x: 16, y: 0 },
                         { x: 16, y: 0 }
                     ],
                 "up":
                     [
+                        { x: 0, y: -16 },
                         { x: 0, y: -16 },
                         { x: 0, y: -16 },
                         { x: 0, y: -16 }
@@ -1245,10 +1398,12 @@ var tilemap = {
                     [
                         { x: -16, y: 0 },
                         { x: -16, y: 0 },
+                        { x: -16, y: 0 },
                         { x: -16, y: 0 }
                     ],
                 "down":
                     [
+                        { x: 0, y: 16 },
                         { x: 0, y: 16 },
                         { x: 0, y: 16 },
                         { x: 0, y: 16 }
@@ -1257,7 +1412,7 @@ var tilemap = {
             "down"
         );
 
-        player.equip(dagger);
+        //player.equip(dagger);
 
 
         triggers = initTriggers(tilemap, triggers);
@@ -1288,7 +1443,8 @@ var tilemap = {
 
                 player.collide(tilemap, collidables);
 
-                $('#debug').text('player.facing:' +  player.facing);
+                $('#weapon').text((player.weapon) ? player.weapon.id : "none");
+                $('#hp').text(player.hp);
 
                 camera.follow(player.position);
 
