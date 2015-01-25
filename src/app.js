@@ -275,18 +275,52 @@ function initCanvas(selector) {
     }).bind(canvasObj);
 
     canvasObj.drawPlayer = (function (tilesheet, player) {
-        //debugger;
+        var weaponpos;
 
         if (!tilesheet.__loaded) {
             return;
         }
 
-        var playersprite = tilesheet.data[player.renderable._tileID];
+        var playersprite = tilesheet.data[player.renderable._tileID],
+            weaponsprite;
 
         this.drawSprite(
             player.position.x, player.position.y, player.renderable.hw, player.renderable.hh,
             tilesheet.image, playersprite.x, playersprite.y, playersprite.w / 2, playersprite.h / 2
         );
+
+        // draw weapon if one is equipped
+        if (player.weapon && player.attacking) {
+            weaponsprite = tilesheet.data[player.weapon.renderable.tileID];
+
+            if (player.facing === "right") {
+                weaponpos = {
+                    x: player.position.x + player.renderable.hw + player.weapon.position.x,
+                    y: player.position.y + player.weapon.position.y
+                };
+            } else if (player.facing === "left") {
+                weaponpos = {
+                    x: player.position.x - player.renderable.hw + player.weapon.position.x,
+                    y: player.position.y + player.weapon.position.y
+                };
+            } else if (player.facing === "up") {
+                weaponpos = {
+                    x: player.position.x + player.weapon.position.x,
+                    y: player.position.y - player.renderable.hh + player.weapon.position.y
+                };
+            } else if (player.facing === "down") {
+                weaponpos = {
+                    x: player.position.x + player.weapon.position.x,
+                    y: player.position.y + player.renderable.hh + player.weapon.position.y
+                };
+            }
+            this.drawSprite(
+                weaponpos.x, weaponpos.y, player.weapon.renderable.hw, player.weapon.renderable.hh,
+                tilesheet.image, weaponsprite.x, weaponsprite.y, weaponsprite.w / 2, weaponsprite.h / 2
+            );
+        }
+
+
     }).bind(canvasObj);
 
     canvasObj.render = (function (camera) {
@@ -436,6 +470,9 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
         y: false
     };
     player._motionstate = "idle";
+    player.attacking = false;
+    player.weapon = null;
+
 
     player.collidable = {
         hw: hw,
@@ -461,6 +498,10 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
     player.maxv = maxv || 128;
 
     // functions
+
+    player.equip = (function (weapon) {
+        this.weapon = weapon;
+    }).bind(player);
 
     player.left = (function(keystate) {
         if (keystate) {
@@ -494,20 +535,45 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
         }
     }).bind(player);
 
+    player.attack = (function (keystate) {
+        if (keystate) {
+            if (!this.attacking && this.weapon) {
+                this.attacking = true;
+                this.weapon.activate();
+            }
+        }
+    }).bind(player);
+
     player.changeDirection = (function (dir) {
-        this.facing = dir;
-        this.renderable._tileID = this._spritemap[this._motionstate][this.facing][this._currentframe];
+        // don't change directions mid-attack!
+        if (!this.attacking) {
+            this.facing = dir;
+            this.renderable._tileID = this._spritemap[this._motionstate][this.facing][this._currentframe];
+
+            if (this.weapon) {
+                this.weapon.changeDirection(dir);
+            }
+
+        }
     }).bind(player);
 
     player.update = (function (dt) {
         // clamp maxv
 
         var velocity_magnitude = Math.sqrt(this.x * this.x + this.y * this.y),
-            scale = velocity_magnitude / scale;
+            scale = velocity_magnitude / scale,
+            attack_done;
 
         if (scale > 1) {
             this.velocity.x /= scale;
             this.velocity.y /= scale;
+        }
+
+        if (this.weapon) {
+            attack_done = this.weapon.update(dt);
+            if (attack_done) {
+                this.attacking = false;
+            }
         }
 
         this.position.x += ((this.velocity.x * dt) / 1000) | 0;
@@ -835,19 +901,19 @@ function initEnemies(map, e) {
             // determine proximity to player
             player_dist_squared = ((enemy.position.x - player.position.x) * (enemy.position.x - player.position.x)) + ((enemy.position.y - player.position.y) * (enemy.position.y - player.position.y));
 
-                enemy.velocity.x = (player.position.x - enemy.position.x);
-                enemy.velocity.y = (player.position.y - enemy.position.y);
+            enemy.velocity.x = (player.position.x - enemy.position.x);
+            enemy.velocity.y = (player.position.y - enemy.position.y);
 
-                velocity_mag = Math.sqrt((enemy.velocity.x * enemy.velocity.x) + (enemy.velocity.y * enemy.velocity.y));
-                scale = velocity_mag / enemy.maxv;
+            velocity_mag = Math.sqrt((enemy.velocity.x * enemy.velocity.x) + (enemy.velocity.y * enemy.velocity.y));
+            scale = velocity_mag / enemy.maxv;
 
-                if (scale > 1) {
-                    enemy.velocity.x /= (scale * scale);
-                    enemy.velocity.y /= (scale * scale);
-                } else {
-                    enemy.velocity.x *= scale;
-                    enemy.velocity.x *= scale;
-                }
+            if (scale > 1) {
+                enemy.velocity.x /= (scale * scale);
+                enemy.velocity.y /= (scale * scale);
+            } else {
+                enemy.velocity.x *= scale;
+                enemy.velocity.x *= scale;
+            }
 
             // physics update
             enemy.position.x += enemy.velocity.x * dt / 1000;
@@ -880,6 +946,87 @@ function initEnemies(map, e) {
     return enemies;
 }
 
+function initWeapon(animation, renderable, hitbox, speed, damage, offset, currentDir) {
+    var weapon = {
+        frames: animation,
+        hitbox: hitbox,
+        damage: damage,
+        frametime: speed,
+        offset: offset,
+        dir: currentDir,
+
+        _currentFrame: 0,
+        _currentTime: 0,
+        active: false
+    };
+
+    weapon.renderable = {
+        tileID: weapon.frames[weapon.dir][weapon._currentFrame],
+        hw:     renderable.hw,
+        hh:     renderable.hh
+    };
+
+    weapon.collidable = {
+        hw: weapon.hitbox[weapon.dir][weapon._currentFrame].hw,
+        hh: weapon.hitbox[weapon.dir][weapon._currentFrame].hh
+    };
+
+    weapon.position = weapon.offset[weapon.dir][weapon._currentFrame];
+
+    weapon.changeDirection = (function (dir) {
+        this.dir = dir;
+    }).bind(weapon);
+
+    weapon.activate = (function () {
+        if (!this.active) {
+            this.renderable.tileID = this.frames[this.dir][this._currentFrame];
+
+            this.collidable = {
+                hw: this.hitbox[this.dir][this._currentFrame].hw,
+                hh: this.hitbox[this.dir][this._currentFrame].hh
+            };
+
+            this.position = this.offset[this.dir][this._currentFrame];
+            this.active = true;
+        }
+    }).bind(weapon);
+
+    weapon.deactivate = (function () {
+        if (this.active) {
+            this.active = false;
+            this._currentFrame = 0;
+            this._currentTime = 0;
+        }
+    }).bind(weapon);
+
+    weapon.update = (function (dt) { //returns true if attack animation is complete
+        if (this.active) {
+            this._currentTime += dt;
+            if (this._currentTime > this.frametime) {
+                this._currentFrame += 1;
+
+                if (this._currentFrame === this.frames[this.dir].length) {
+                    // attack animation is over; deactivate the weapon
+                    this.deactivate();
+                    return true;
+                }
+
+
+                this._currentTime = this._currentTime % this.frametime;
+
+                this.renderable.tileID = this.frames[this.dir][this._currentFrame];
+
+                this.collidable.hw = this.hitbox[this.dir][this._currentFrame].hw;
+                this.collidable.hh = this.hitbox[this.dir][this._currentFrame].hh;
+
+                this.position = this.offset[this.dir][this._currentFrame];
+            }
+        }
+    }).bind(weapon);
+
+    return weapon;
+}
+
 var tilemap = {
         "ff": 1,
         "01": 0,
@@ -902,7 +1049,7 @@ var tilemap = {
     $(document).ready(function () {
         var canvas, camera, map, tiles, input,
             step,
-            player,
+            player, dagger,
             enemies, triggers, walls, collidables;
         $('#message').text('What do we do now?');
 
@@ -942,14 +1089,15 @@ var tilemap = {
 
 
 
-        }, 16, 16, tile(1, 0), 256);
+        }, 16, 16, tile(1, 0), 256, 5);
 
 
         input = initInput({
             "w": player.up,
             "a": player.left,
             "s": player.down,
-            "d": player.right
+            "d": player.right,
+            "space": player.attack
         });
 
         enemies = [];
@@ -1043,6 +1191,73 @@ var tilemap = {
         });
 
 
+
+        // weapons
+        dagger = initWeapon(
+            {
+                "right": [13, 14, 15],
+                "up": [22, 23, 24],
+                "left": [31, 32, 33],
+                "down": [40, 41, 42]
+            },
+            {
+                hw: 16,
+                hh: 16
+            },
+            {
+                "right": [
+                    { hw: 2, hh: 2 },
+                    { hw: 4, hh: 4 },
+                    { hw: 2, hh: 2 }
+                ],
+                "up": [
+                    { hw: 2, hh: 2 },
+                    { hw: 4, hh: 4 },
+                    { hw: 2, hh: 2 }
+                ],
+                "left": [
+                    { hw: 2, hh: 2 },
+                    { hw: 4, hh: 4 },
+                    { hw: 2, hh: 2 }
+                ],
+                "down": [
+                    { hw: 2, hh: 2 },
+                    { hw: 4, hh: 4 },
+                    { hw: 2, hh: 2 }
+                ]
+            },
+            30,
+            1,
+            {       // offset from the side that the weapon is coming from
+                "right":
+                    [
+                        { x: 16, y: 0 },
+                        { x: 16, y: 0 },
+                        { x: 16, y: 0 }
+                    ],
+                "up":
+                    [
+                        { x: 0, y: -16 },
+                        { x: 0, y: -16 },
+                        { x: 0, y: -16 }
+                    ],
+                "left":
+                    [
+                        { x: -16, y: 0 },
+                        { x: -16, y: 0 },
+                        { x: -16, y: 0 }
+                    ],
+                "down":
+                    [
+                        { x: 0, y: 16 },
+                        { x: 0, y: 16 },
+                        { x: 0, y: 16 }
+                    ]
+            },
+            "down"
+        );
+
+        player.equip(dagger);
 
 
         triggers = initTriggers(tilemap, triggers);
