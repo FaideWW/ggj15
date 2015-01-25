@@ -28,7 +28,7 @@ function findPossibleTiles(player, data) {
     // top left
     tile = data[y][x];
 
-    if (tile > 0) {
+    if (tile || tile.length) {
         possible_tiles.push({
             pos: {
                 x: ((x * 2) + 1) * map.halfwidth,
@@ -51,7 +51,7 @@ function findPossibleTiles(player, data) {
     // top right
     tile = data[y][x];
 
-    if (tile > 0) {
+    if (tile || tile.length) {
         possible_tiles.push({
             pos: {
                 x: ((x * 2) + 1) * map.halfwidth,
@@ -75,7 +75,7 @@ function findPossibleTiles(player, data) {
     // bottom left
     tile = data[y][x];
 
-    if (tile > 0) {
+    if (tile || tile.length) {
         possible_tiles.push({
             pos: {
                 x: ((x * 2) + 1) * map.halfwidth,
@@ -99,7 +99,7 @@ function findPossibleTiles(player, data) {
     // bottom right
     tile = data[y][x];
 
-    if (tile > 0) {
+    if (tile || tile.length) {
         possible_tiles.push({
             pos: {
                 x: ((x * 2) + 1) * map.halfwidth,
@@ -137,6 +137,7 @@ function collideBoundingBoxes(pos1, pos2, aabb1, aabb2) {
         diffy = null;
     if (c1.minx < c2.minx && c1.maxx > c2.minx)  {
         // c1 is to the left of c2, and intersecting on the x axis
+
         diffx = c1.maxx - c2.minx;
     } else if (c1.minx >= c2.minx && c1.minx <= c2.maxx) {
         // c1 is to the right of c2, and intersecting on the x axis
@@ -154,6 +155,7 @@ function collideBoundingBoxes(pos1, pos2, aabb1, aabb2) {
     if (diffx === null || diffy === null) {
         return false;
     }
+
 
     return {
         x: diffx,
@@ -176,7 +178,8 @@ function initCanvas(selector) {
         height:      $canvas.height(),
         strokeQueue: [],
         fillQueue:   [],
-        spriteQueue:   []
+        spriteQueue: [],
+        UIQueue:     []
     };
 
     //--------------------- defaults
@@ -227,11 +230,30 @@ function initCanvas(selector) {
         );
     }).bind(canvasObj);
 
-    canvasObj.drawMap = (function (tilesheet, map) {
-        var i, x, y, h, w, tile;
+    canvasObj.drawUI = (function (x, y, hw, hh, image, imgx, imgy, imghw, imghh){
+        this.UIQueue.push(
+            (function (x, y, hw, hh, image, imgx, imgy, imghw, imghh) {
+                return function (ctx) {
+                    ctx.save();
+
+                    ctx.drawImage(image, imgx | 0, imgy | 0, (imghw * 2) | 0, (imghh * 2) | 0, (x - hw) | 0, (y - hh) | 0, (hw * 2) | 0, (hh * 2) | 0);
+
+                    ctx.restore();
+                }
+            }(x, y, hw, hh, image, imgx, imgy, imghw, imghh))
+        );
+    }).bind(canvasObj);
+
+    canvasObj.drawMap = (function (tilesheet, map, camera) {
+        var minx, maxx, miny, maxy, i, x, y, h, w, tile, tilex, tiley;
         if (!tilesheet.__loaded) {
             return;
         }
+
+        minx = camera.x - this.width  / 2 - (map.halfwidth);
+        maxx = camera.x + this.width  / 2 + (map.halfwidth);
+        miny = camera.y - this.height / 2 - (map.halfheight);
+        maxy = camera.y + this.height / 2 + (map.halfheight);
 
         for (i = 0; i < 3; i += 1) {
             h = map.data[i].length;
@@ -240,13 +262,17 @@ function initCanvas(selector) {
                 for (x = 0; x < w; x += 1) {
                     if (map.data[i][y][x] !== ' ' && tilesheet.data[map.data[i][y][x]]) {
                         tile = tilesheet.data[map.data[i][y][x]];
-                        this.drawSprite(
-                            ((x * 2) + 1) * map.halfwidth, ((y * 2) + 1) * map.halfheight,
-                            map.halfwidth, map.halfheight,
-                            tilesheet.image,
-                            tile.x, tile.y,
-                            tile.w / 2, tile.h / 2
-                        );
+                        tilex =  ((x * 2) + 1) * map.halfwidth;
+                        tiley =  ((y * 2) + 1) * map.halfheight;
+                        if (tilex > minx && tilex < maxx && tiley > miny && tiley < maxy) {
+                            this.drawSprite(
+                                tilex, tiley,
+                                map.halfwidth, map.halfheight,
+                                tilesheet.image,
+                                tile.x, tile.y,
+                                tile.w / 2, tile.h / 2
+                            );
+                        }
                     }
                 }
             }
@@ -265,6 +291,10 @@ function initCanvas(selector) {
             enemy = enemies.data[i];
 
             enemysprite = tilesheet.data[enemy.tileID];
+            if (enemysprite === undefined) {
+                console.log(enemy);
+                continue;
+            }
 
             this.drawSprite(
                 enemy.position.x, enemy.position.y, enemy.renderable.hw, enemy.renderable.hh,
@@ -323,6 +353,30 @@ function initCanvas(selector) {
 
     }).bind(canvasObj);
 
+
+    canvasObj.drawConsole = (function (tilesheet, cnsl) {
+        var i, j, l, m, msg, letter, x, y;
+        l = cnsl.log.length;
+        x = cnsl.padding.x;
+        y = cnsl.padding.y;
+
+        for (i = 0; i < l; i += 1) {
+            msg = cnsl.log[i].msg;
+            m = msg.length;
+            for (j = 0; j < m; j += 1) {
+                letter = tilesheet.data[msg[j]];
+                this.drawUI(
+                  x, y, cnsl.fontSize / 2, cnsl.fontSize / 2,
+                    tilesheet.image, letter.x, letter.y, letter.w / 2, letter.h / 2
+                );
+                x += cnsl.fontSize;
+            }
+            x = cnsl.padding.x;
+            y += cnsl.fontSize * 2;
+        }
+
+    });
+
     canvasObj.render = (function (camera) {
         // stroke queue first, then fill queue
         this.clear();
@@ -344,6 +398,10 @@ function initCanvas(selector) {
 
         this.ctx.restore();
 
+        while (this.UIQueue.length) {
+            this.UIQueue.shift()(this.ctx);
+        }
+
     }).bind(canvasObj);
 
     return canvasObj;
@@ -353,9 +411,9 @@ function initCamera(x, y) {
     var camera = {};
     camera.x = x;
     camera.y = y;
-    camera.follow = (function (target) {
-        camera.x = target.x;
-        camera.y = target.y;
+    camera.follow = (function (target, bounds) {
+        camera.x = Math.min(Math.max(target.x, bounds.minx), bounds.maxx);
+        camera.y = Math.min(Math.max(target.y, bounds.miny), bounds.maxy);
     }).bind(camera);
 
     return camera;
@@ -374,8 +432,8 @@ function initTilesheet(filepath, thw, thh) {
         numrows, numcols, x, y;
 
     tiles.image.onload = function () {
-        numrows = tiles.image.width / (tw + 1);
-        numcols = tiles.image.height/ (th + 1);
+        numcols = tiles.image.width / (tw + 1);
+        numrows = tiles.image.height/ (th + 1);
 
         for (y = 0; y < numrows; y += 1) {
             for (x = 0; x < numcols; x += 1) {
@@ -473,6 +531,7 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
     player.attacking = false;
     player.weapon = null;
     player.hp     = 10;
+    player.alive  = true;
 
     player.collidable = {
         hw: hw,
@@ -568,6 +627,10 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
     player.update = (function (dt) {
         // clamp maxv
 
+        if (!this.alive) {
+            return;
+        }
+
         var velocity_magnitude = Math.sqrt(this.x * this.x + this.y * this.y),
             scale = velocity_magnitude / scale,
             attack_done;
@@ -644,7 +707,11 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
 
     player.hit = (function (enemy, collision_manifold) {
         if (this._invulnerable === 0) {
-            this.hp--;
+            this.hp -= enemy.damage || 1;
+            if (this.hp <= 0) {
+                this.die();
+                return;
+            }
             // received hit from enemy
             if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
                 player.knockback.x = collision_manifold.x / Math.abs(collision_manifold.x) * 500;
@@ -670,11 +737,23 @@ function initPlayer(spritemap, hw, hh, pos, maxv, animation_fps) {
         if (!map.__loaded) {
             return;
         }
-        collidables.walls.collide(this, collidables);
+        collidables.walls.collide(this, collidables, (function (collision_manifold) {
+            if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
+                this.position.x -= collision_manifold.x;
+            } else {
+                this.position.y -= collision_manifold.y;
+            }
+        }).bind(this));
         collidables.triggers.collide(this, collidables);
         collidables.enemies.collide(this, collidables);
 
 
+    }).bind(player);
+
+    player.die = (function () {
+        this.alive = false;
+        this.renderable._tileID = this._spritemap.dead;
+        cout.print("You were killed.", true);
     }).bind(player);
 
     return player;
@@ -772,7 +851,7 @@ function initWalls(map, tileIDs) {
     }
 
 
-    walls.collide = function(player, collidables) {
+    walls.collide = function(player, collidables, callback) {
 
         // assumes the player collidable is smaller than the tile collidable (a tile cannot be entirely inside the player)
         // at most we test 4 tiles
@@ -795,11 +874,7 @@ function initWalls(map, tileIDs) {
 
             if (collision_manifold !== false) {
                 // collision!
-                if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y)) {
-                    player.position.x -= collision_manifold.x;
-                } else {
-                    player.position.y -= collision_manifold.y;
-                }
+                callback(collision_manifold);
                 //break;
                 // TODO: solve edge collision issues on multi-tile walls
             }
@@ -828,7 +903,10 @@ function initTriggers(map, t) {
 
             // set up positions
             for (i = 0; i < l; i += 1) {
-                triggers.triggermap[t[i].src.y][t[i].src.x] = i + 1;
+                if (!triggers.triggermap[t[i].src.y][t[i].src.x]) {
+                    triggers.triggermap[t[i].src.y][t[i].src.x] = [];
+                }
+                triggers.triggermap[t[i].src.y][t[i].src.x].push(i + 1);
                 t[i].pos = {
                     x: (t[i].src.x * 2 + 1) * map.halfwidth,
                     y: (t[i].src.y * 2 + 1) * map.halfheight
@@ -853,7 +931,7 @@ function initTriggers(map, t) {
 
     triggers.collide = function (player, collidables) {
 
-        var triggermap, data, wallmap, possible_tiles, i, collision_manifold, trigger;
+        var triggermap, data, wallmap, possible_tiles, i, collision_manifold, trigger, j;
 
         triggermap = collidables.triggers.triggermap;
         data       = collidables.triggers.data;
@@ -873,17 +951,20 @@ function initTriggers(map, t) {
             if (collision_manifold !== false) {
                 // collision!
 
-                trigger = data[possible_tiles[i].tileID - 1];
+                for (j = 0; j < possible_tiles[i].tileID.length; j += 1) {
+                    trigger = data[possible_tiles[i].tileID[j] - 1];
 
-                if (trigger.type === 'lock' && trigger.state !== 1) {
-                    trigger.state = 1;
-                    map.data[trigger.src.z][trigger.src.y][trigger.src.x] = trigger.sprites[trigger.state];
-                    map.data[trigger.target.z][trigger.target.y][trigger.target.x] = "00";
-                    wallmap[trigger.target.y][trigger.target.x] = 0;
-                } else if (trigger.type === 'goal' && trigger.state !== 1) {
-                    trigger.state = 1;
-                    map.data[trigger.src.z][trigger.src.y][trigger.src.x] = "00";
-                    trigger.action();
+                    if (trigger.type === 'lock' && trigger.state !== 1) {
+                        trigger.state = 1;
+                        map.data[trigger.src.z][trigger.src.y][trigger.src.x] = trigger.sprites[trigger.state];
+                        map.data[trigger.target.z][trigger.target.y][trigger.target.x] = "00";
+                        wallmap[trigger.target.y][trigger.target.x] = 0;
+                        trigger.action();
+                    } else if (trigger.type === 'goal' && trigger.state !== 1) {
+                        trigger.state = 1;
+                        map.data[trigger.src.z][trigger.src.y][trigger.src.x] = "00";
+                        trigger.action();
+                    }
                 }
 
             }
@@ -902,7 +983,7 @@ function initEnemies(map, e) {
             l = e.length;
 
             for (i = 0; i < l; i += 1) {
-                enemies.data[i].tileID = enemies.data[i].sprite[0];
+                enemies.data[i].tileID = enemies.data[i].sprite[enemies.data[i].status][enemies.data[i].motionstate][0];
                 enemies.data[i].velocity = {
                     x: 0,
                     y: 0
@@ -911,8 +992,12 @@ function initEnemies(map, e) {
                     x: 0,
                     y: 0
                 };
+                enemies.data[i].collidedirections = {
+                    x: false,
+                    y: false
+                };
                 enemies.data[i]._invulnerable = 0;
-                enemies.data[i].maxv = 64;
+                enemies.data[i].maxv = enemies.data[i].maxv || 64;
                 enemies.data[i].renderable = {
                     frametime: 1000 / (e[i].fps || 10),
                     hw:  e[i].size.hw,
@@ -936,6 +1021,9 @@ function initEnemies(map, e) {
                         } else {
                             this.knockback.y = collision_manifold.y / Math.abs(collision_manifold.y) * 200;
                         }
+                        if (this.onHit) {
+                            this.onHit(enemies);
+                        }
                     }
                 }).bind(enemies.data[i]);
 
@@ -957,7 +1045,7 @@ function initEnemies(map, e) {
 
 
     enemies.update = (function (dt, player) {
-        var i, l, enemy, player_dist_squared, velocity_mag, scale;
+        var i, l, enemy, velocity_mag;
 
         if (!this.data) {
             return;
@@ -974,28 +1062,41 @@ function initEnemies(map, e) {
             enemy.renderable._timesince += dt;
             if (enemy.renderable._timesince > enemy.renderable.frametime) {
                 enemy.renderable._timesince = enemy.renderable._timesince % enemy.renderable.frametime;
-                enemy.renderable._currentframe = (enemy.renderable._currentframe + 1) % enemy.sprite.length;
-                enemy.tileID = enemy.sprite[enemy.renderable._currentframe];
+                enemy.renderable._currentframe = (enemy.renderable._currentframe + 1) % enemy.sprite[enemy.status][enemies.data[i].motionstate].length;
+                enemy.tileID = enemy.sprite[enemy.status][enemies.data[i].motionstate][enemy.renderable._currentframe];
             }
 
 
             // follow logic update
 
-            // determine proximity to player
-            player_dist_squared = ((enemy.position.x - player.position.x) * (enemy.position.x - player.position.x)) + ((enemy.position.y - player.position.y) * (enemy.position.y - player.position.y));
+            if (enemy.behavior === 'follow') {
+                if (!player.alive) {
+                    enemy.behavior = 'patrol';
+                    enemy.status   = 'NEUTRAL';
+                    enemy.maxv    /= 2;
+                }
+                // determine proximity to player
+                 enemy.velocity.x = (player.position.x - enemy.position.x);
+                enemy.velocity.y = (player.position.y - enemy.position.y);
 
-            enemy.velocity.x = (player.position.x - enemy.position.x);
-            enemy.velocity.y = (player.position.y - enemy.position.y);
+                velocity_mag = Math.sqrt((enemy.velocity.x * enemy.velocity.x) + (enemy.velocity.y * enemy.velocity.y));
+                if (velocity_mag > 0) {
+                    enemy.velocity.x /= velocity_mag;
+                    enemy.velocity.y /= velocity_mag;
 
-            velocity_mag = Math.sqrt((enemy.velocity.x * enemy.velocity.x) + (enemy.velocity.y * enemy.velocity.y));
-            scale = velocity_mag / enemy.maxv;
+                    enemy.velocity.x *= enemy.maxv;
+                    enemy.velocity.y *= enemy.maxv;
+                }
 
-            if (scale > 1) {
-                enemy.velocity.x /= (scale * scale);
-                enemy.velocity.y /= (scale * scale);
-            } else {
-                enemy.velocity.x *= scale;
-                enemy.velocity.x *= scale;
+
+
+            } else if (enemy.behavior === 'patrol') {
+                if (enemy.velocity.x === 0 && enemy.velocity.y === 0) {
+                    enemy.velocity.x = Math.random() * enemy.maxv;
+                    enemy.velocity.y = Math.random() * enemy.maxv;
+                } else {
+                    enemy.motionstate = "moving";
+                }
             }
 
             if (enemy.knockback.x === 0 && enemy.knockback.y === 0) {
@@ -1022,7 +1123,7 @@ function initEnemies(map, e) {
         }
     }).bind(enemies);
 
-    enemies.collide = (function (player) {
+    enemies.collide = (function (player, collidables) {
         var i, l, enemy, collision, weaponpos;
 
         if (!this.data) {
@@ -1034,11 +1135,13 @@ function initEnemies(map, e) {
         for (i = 0; i < l; i += 1) {
             enemy = this.data[i];
 
+            if (!enemy) { continue; }
+
 
             // player collision
             collision = collideBoundingBoxes(enemy.position, player.position, enemy.size, player.collidable);
 
-            if (collision !== false) {
+            if (collision !== false && enemy.status === "PROVOKED") {
                 player.hit(enemy, collision);
                 //console.log('lose!');
             }
@@ -1069,11 +1172,38 @@ function initEnemies(map, e) {
 
                 if (collision !== false) {
                     enemy.hit(player.weapon.damage, collision);
+                    if (enemy.onHit) {
+                        enemy.onHit(enemies);
+                    }
                 }
             }
 
+            enemy.collidable = enemy.size;
+
+            // also collide with walls
+            collidables.walls.collide(enemy, collidables, (function (enemy) {
+                return function (collision_manifold) {
+                    if (collision_manifold.x < 0) {
+                        //debugger;
+                    }
+                    if (Math.abs(collision_manifold.x) < Math.abs(collision_manifold.y) && !enemy.collidedirections.x) {
+                        enemy.position.x -= collision_manifold.x;
+                        enemy.velocity.x *= -1;
+                        enemy.collidedirections.x = true;
+                    } else if (Math.abs(collision_manifold.x) >= Math.abs(collision_manifold.y) && !enemy.collidedirections.y) {
+                        enemy.position.y -= collision_manifold.y;
+                        enemy.velocity.y *= -1;
+                        enemy.collidedirections.y = true;
+                    }
+                }
+            })(enemy));
+
+            enemy.collidedirections.x = false;
+            enemy.collidedirections.y = false;
 
         }
+
+
     }).bind(enemies);
 
     return enemies;
@@ -1161,16 +1291,67 @@ function initWeapon(name, animation, renderable, hitbox, speed, damage, offset, 
     return weapon;
 }
 
+function initConsole(alphabet) {
+    var cnsl = {};
+
+    cnsl.keymap = alphabet;
+    cnsl.log = [];
+    cnsl.padding = {
+        x: 16,
+        y: 16
+    };
+    cnsl.fontSize = 16;
+
+    cnsl.translate = (function (msg) {
+        var i, l, sprites = [];
+        l = msg.length;
+        for (i = 0; i < l; i += 1) {
+            if (this.keymap.hasOwnProperty(msg[i])) {
+                sprites.push(this.keymap[msg[i]]);
+            } else {
+                sprites.push(this.keymap["?"]);
+            }
+        }
+        return sprites;
+    }).bind(cnsl);
+
+    cnsl.print = (function (message, permanent) {
+        this.log.push({
+            time: (permanent) ? Infinity : 5000,
+            msg:  this.translate(message)
+        });
+    }).bind(cnsl);
+
+    cnsl.update = (function (dt) {
+        var i, l;
+        l = this.log.length;
+        for (i = 0; i < l; i += 1) {
+            if (!this.log[i]) { continue; }
+            this.log[i].time -= dt;
+            if (this.log[i].time <= 0) {
+                this.log.splice(i,1);
+            }
+        }
+    }).bind(cnsl);
+
+    return cnsl;
+}
+
 var tilemap = {
-        "ff": 1,
-        "01": 0,
-        "02": 3,
-        "03": 4,
-        "04": 5,
-        "05": 6,
-        "06": 7
+        "ff": 1, // rock
+        "01": 0, // grass
+        "02": 3, // button (unpressed)
+        "03": 4, // button (pressed)
+        "04": 5, // door
+        "05": 6, // coin
+        "06": 7, // dagger (dropped)
+        "07": 2, // tile
+        "fe": 38, // wall
+        "cc": 45, // bush left
+        "cd": 46 //  bush right
     },
-    wall_tiles = [1, 5];
+    wall_tiles = [1, 5, 38],
+    cout;
 
 
 (function ($) {
@@ -1179,13 +1360,60 @@ var tilemap = {
         lastTime = 0,
         currentTime = 0,
         timeSince = 0,
-        dt, tile;
+        dt, tile,
+        robotID = 0,
+        createRobot = function (y, x) {
+            return {
+                id: robotID++,
+                type: "robotguard",
+                sprite: {
+                    "NEUTRAL":  {
+                        "idle": [54, 55],
+                        "moving": [56,57]
+                    },
+                    "PROVOKED": {
+                        "idle": [63, 64],
+                        "moving": [65, 66]
+                    },
+                    "FRIENDLY": {
+                        "idle": [72, 73],
+                        "moving": [74,75]
+                    }
+                },
+                status: "NEUTRAL",
+                behavior: "patrol",
+                motionstate: "idle",
+                maxv: 128,
+                fps: 3,
+                hp: 20,
+                damage: 5,
+                position: tile(y, x),
+                size: {
+                    hw: 24,
+                    hh: 24
+                },
+                onHit: function (enemies) {
+                    var i, l;
+                    l = enemies.data.length;
+                    console.log(enemies);
+                    for (i = 0; i < l; i += 1) {
+                        if (enemies.data[i].type === 'robotguard') {
+                            console.log('provoked');
+                            enemies.data[i].status = "PROVOKED";
+                            enemies.data[i].behavior = "follow";
+                            enemies.data[i].maxv = 200;
+                        }
+                    }
+                }
+            };
+        };
 
     $(document).ready(function () {
         var canvas, camera, map, tiles, input,
             step,
             player, dagger,
-            enemies, triggers, walls, collidables;
+            enemies, triggers, walls, collidables,
+            map_height, map_width, camera_bounds;
         $('#message').text('What do we do now?');
 
         canvas = initCanvas('#canvas');
@@ -1197,6 +1425,7 @@ var tilemap = {
 
 
         tilemap = initTilemap(__PRELOADCANVAS.ctx, "img/map.png", tilemap, 32, 32);
+
         tiles = initTilesheet("img/tiles.png", 4, 4);
 
         tile = function (y, x) {
@@ -1220,11 +1449,12 @@ var tilemap = {
                 "left":  [10, 10, 10, 10, 10, 28],
                 "up":    [11, 11, 11, 11, 11, 29],
                 "right": [12, 12, 12, 12, 12, 30]
-            }
+            },
+            "dead": 39
 
 
 
-        }, 16, 16, tile(1, 0), 256, 5);
+        }, 16, 16, tile(50, 50), 256, 5);
 
 
         input = initInput({
@@ -1233,6 +1463,65 @@ var tilemap = {
             "s": player.down,
             "d": player.right,
             "space": player.attack
+        });
+
+        cout = initConsole({
+            "a": 126,
+            "A": 126,
+            "b": 127,
+            "B": 127,
+            "c": 128,
+            "C": 128,
+            "d": 129,
+            "D": 129,
+            "e": 130,
+            "E": 130,
+            "f": 131,
+            "F": 131,
+            "g": 132,
+            "G": 132,
+            "h": 133,
+            "H": 133,
+            "i": 134,
+            "I": 134,
+            "j": 135,
+            "J": 135,
+            "k": 136,
+            "K": 136,
+            "l": 137,
+            "L": 137,
+            "m": 138,
+            "M": 138,
+            "n": 139,
+            "N": 139,
+            "o": 140,
+            "O": 140,
+            "p": 141,
+            "P": 141,
+            "q": 142,
+            "Q": 142,
+            "r": 143,
+            "R": 143,
+            "s": 144,
+            "S": 144,
+            "t": 145,
+            "T": 145,
+            "u": 146,
+            "U": 146,
+            "v": 147,
+            "V": 147,
+            "w": 148,
+            "W": 148,
+            "x": 149,
+            "X": 149,
+            "y": 150,
+            "Y": 150,
+            "z": 151,
+            "Z": 151,
+            ".": 152,
+            "!": 153,
+            "?": 154,
+            " ": 155
         });
 
         enemies = [];
@@ -1248,96 +1537,58 @@ var tilemap = {
         triggers.push({
             type: 'lock',
             src:  {
-                y: 5, x: 0, z: 1 // button
+                y: 40, x: 44, z: 1 // button
             },
             target:{
-                y: 1, x: 1, z: 1 // door
+                y: 40, x: 52, z: 1 // door
             },
             state: 0,
-            sprites: [3,4]
-        });
-        triggers.push({
-            type: 'lock',
-            src:  {
-                y: 8, x: 7, z: 1 // button
-            },
-            target:{
-                y: 6, x: 0, z: 1 // door
-            },
-            state: 0,
-            sprites: [3,4]
-        });
-        triggers.push({
-            type: 'lock',
-            src:  {
-                y: 7, x: 0, z: 1 // button
-            },
-            target:{
-                y: 8, x: 6, z: 1 // door
-            },
-            state: 0,
-            sprites: [3,4]
-        });
-        triggers.push({
-            type: 'lock',
-            src:  {
-                y: 7, x: 2, z: 1 // button
-            },
-            target:{
-                y: 8, x: 0, z: 1 // door
-            },
-            state: 0,
-            sprites: [3,4]
-        });
-        triggers.push({
-            type: 'lock',
-            src:  {
-                y: 9, x: 0, z: 1 // button
-            },
-            target:{
-                y: 6, x: 2, z: 1 // door
-            },
-            state: 0,
-            sprites: [3,4]
-        });
-
-        // goal/win state trigger
-        triggers.push({
-            type: 'goal',
-            src: {
-                y: 5, x: 4, z: 1 // coin
-            },
-            state: 0,
+            sprites: [3,4],
             action: function () {
-                console.log('win!');
+                cout.print('A locked door has opened.');
             }
         });
+        // goal/win state trigger
+
 
         triggers.push({
             type: 'goal',
             src: {
-                y: 1, x: 8, z: 1 // dagger
+                y: 40, x: 44, z: 2 // dagger
             },
             state: 0,
             action: function () {
                 player.equip(dagger);
+                cout.print('Picked up dagger.');
             }
         });
+
 
 
         // enemies
-        enemies.push({
-            sprite: [36,37],
-            fps: 10,
-            hp:  10,
-            position: tile(1,5),
-            size: {
-                hw: 16,
-                hh: 16
-            }
-        });
+        //enemies.push({
+        //    sprite: {
+        //        "default": {
+        //            "idle": [36,37]
+        //        }
+        //    },d
+        //    status: "default",
+        //    behavior: "follow",
+        //    motionstate: "idle",
+        //    fps: 10,
+        //    hp:  10,
+        //    position: tile(1,5),
+        //    size: {
+        //        hw: 16,
+        //        hh: 16
+        //    }
+        //});
 
+        enemies.push(createRobot(41, 54));
+        enemies.push(createRobot(35, 45));
+        enemies.push(createRobot(35, 54));
 
+        console.log(enemies);
 
         // weapons
         dagger = initWeapon( "dagger",
@@ -1440,17 +1691,33 @@ var tilemap = {
                 input.processInput();
                 player.update(dt);
                 enemies.update(dt, player);
+                cout.update(dt);
 
                 player.collide(tilemap, collidables);
 
+                $('#pixelpos').text("<" + player.position.y + ", " + player.position.x + ">");
+                $('#tilepos').text("<" + (player.position.y / (tilemap.halfheight * 2)) + ", " + (player.position.x / (tilemap.halfwidth * 2)) + ">");
                 $('#weapon').text((player.weapon) ? player.weapon.id : "none");
                 $('#hp').text(player.hp);
 
-                camera.follow(player.position);
 
-                canvas.drawMap(tiles, tilemap);
-                canvas.drawEnemies(tiles, enemies);
+                map_height = tilemap.data[0].length;
+                map_width  = tilemap.data[0][0].length;
+                camera_bounds = {
+                    minx: canvas.width / 2,
+                    miny: canvas.height / 2,
+                    maxx: (map_width * 64) - (canvas.width / 2),
+                    maxy: (map_height * 64)- (canvas.height / 2)
+                };
+
+                camera.follow(player.position, camera_bounds);
+
+                canvas.drawMap(tiles, tilemap, camera);
                 canvas.drawPlayer(tiles, player);
+                canvas.drawEnemies(tiles, enemies);
+
+                canvas.drawConsole(tiles, cout, camera);
+
                 canvas.render(camera);
                 timeSince = timeSince % frametime;
             }
