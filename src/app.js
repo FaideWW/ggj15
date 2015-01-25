@@ -1177,9 +1177,18 @@ function initEnemies(map, e) {
             // player collision
             collision = collideBoundingBoxes(enemy.position, player.position, enemy.size, player.collidable);
 
-            if (collision !== false && enemy.status === "PROVOKED") {
-                player.hit(enemy, collision);
-                //console.log('lose!');
+            if (collision !== false) {
+                if (enemy.status === "PROVOKED") {
+                    player.hit(enemy, collision);
+                    //console.log('lose!');
+                } else if (enemy.status === "NEUTRAL" && player.alive) {
+                    if (Math.abs(collision.x) < Math.abs(collision.y)) {
+                        player.position.x += (collision.x | 0);
+                    } else {
+                        player.position.y += (collision.y | 0);
+                    }
+                }
+
             }
 
             if (player.weapon && player.attacking) {
@@ -1385,7 +1394,8 @@ var tilemap = {
         "fe": 38, // wall
         "cc": 45, // bush left
         "cd": 46, //  bush right,
-        "08": 47  // robot controller
+        "08": 47, // robot controller,
+        "aa": 48  // water
     },
     wall_tiles = [1, 5, 38],
     cout;
@@ -1399,7 +1409,7 @@ var tilemap = {
         timeSince = 0,
         dt, tile,
         robotID = 0,
-        createRobot = function (y, x) {
+        createRobot = function (y, x, behavior) {
             return {
                 id: robotID++,
                 type: "robotguard",
@@ -1418,7 +1428,7 @@ var tilemap = {
                     }
                 },
                 status: "NEUTRAL",
-                behavior: "patrol",
+                behavior: behavior || "patrol",
                 motionstate: "idle",
                 maxv: 128,
                 fps: 3,
@@ -1660,6 +1670,8 @@ var tilemap = {
         enemies.push(createRobot(41, 54));
         enemies.push(createRobot(35, 45));
         enemies.push(createRobot(35, 54));
+        enemies.push(createRobot(31, 48, "guard"));
+        enemies.push(createRobot(31, 49, "guard"));
 
         console.log(enemies);
 
