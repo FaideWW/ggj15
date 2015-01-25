@@ -255,7 +255,43 @@ function initCanvas(selector) {
         miny = camera.y - this.height / 2 - (map.halfheight);
         maxy = camera.y + this.height / 2 + (map.halfheight);
 
-        for (i = 0; i < 3; i += 1) {
+        for (i = 0; i < 2; i += 1) {
+            h = map.data[i].length;
+            for (y = 0; y < h; y += 1) {
+                w = map.data[i][y].length;
+                for (x = 0; x < w; x += 1) {
+                    if (map.data[i][y][x] !== ' ' && tilesheet.data[map.data[i][y][x]]) {
+                        tile = tilesheet.data[map.data[i][y][x]];
+                        tilex =  ((x * 2) + 1) * map.halfwidth;
+                        tiley =  ((y * 2) + 1) * map.halfheight;
+                        if (tilex > minx && tilex < maxx && tiley > miny && tiley < maxy) {
+                            this.drawSprite(
+                                tilex, tiley,
+                                map.halfwidth, map.halfheight,
+                                tilesheet.image,
+                                tile.x, tile.y,
+                                tile.w / 2, tile.h / 2
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }).bind(canvasObj);
+
+
+    canvasObj.drawForeground = (function (tilesheet, map, camera) {
+        var minx, maxx, miny, maxy, i, x, y, h, w, tile, tilex, tiley;
+        if (!tilesheet.__loaded) {
+            return;
+        }
+
+        minx = camera.x - this.width  / 2 - (map.halfwidth);
+        maxx = camera.x + this.width  / 2 + (map.halfwidth);
+        miny = camera.y - this.height / 2 - (map.halfheight);
+        maxy = camera.y + this.height / 2 + (map.halfheight);
+
+        for (i = 2; i < 3; i += 1) {
             h = map.data[i].length;
             for (y = 0; y < h; y += 1) {
                 w = map.data[i][y].length;
@@ -822,7 +858,7 @@ function initWalls(map, tileIDs) {
 
             walls.wallmap = [[]];
 
-            for (layer = 0; layer < 3; layer += 1) {
+            for (layer = 0; layer < 2; layer += 1) { // ignore top-layer walls (invisible walls)
                 h = map.data[layer].length;
                 for (y = 0; y < h; y += 1) {
                     w = map.data[layer][y].length;
@@ -1022,7 +1058,7 @@ function initEnemies(map, e) {
                             this.knockback.y = collision_manifold.y / Math.abs(collision_manifold.y) * 200;
                         }
                         if (this.onHit) {
-                            this.onHit(enemies);
+                            this.onHit.call(this, enemies);
                         }
                     }
                 }).bind(enemies.data[i]);
@@ -1348,7 +1384,8 @@ var tilemap = {
         "07": 2, // tile
         "fe": 38, // wall
         "cc": 45, // bush left
-        "cd": 46 //  bush right
+        "cd": 46, //  bush right,
+        "08": 47  // robot controller
     },
     wall_tiles = [1, 5, 38],
     cout;
@@ -1395,13 +1432,14 @@ var tilemap = {
                 onHit: function (enemies) {
                     var i, l;
                     l = enemies.data.length;
-                    console.log(enemies);
+                    if (this.status === "FRIENDLY") {
+                        return;
+                    }
                     for (i = 0; i < l; i += 1) {
                         if (enemies.data[i].type === 'robotguard') {
-                            console.log('provoked');
                             enemies.data[i].status = "PROVOKED";
                             enemies.data[i].behavior = "follow";
-                            enemies.data[i].maxv = 200;
+                            enemies.data[i].maxv = 240;
                         }
                     }
                 }
@@ -1548,6 +1586,22 @@ var tilemap = {
                 cout.print('A locked door has opened.');
             }
         });
+
+        triggers.push({
+            type: 'lock',
+            src: {
+                y: 44, x: 55, z: 1 // button
+            },
+            target: {
+                y: 45, x: 47, z: 1 // door
+            },
+            state: 0,
+            sprites: [3,4],
+            action: function () {
+                cout.print('A locked door has opened.');
+            }
+        });
+
         // goal/win state trigger
 
 
@@ -1560,6 +1614,25 @@ var tilemap = {
             action: function () {
                 player.equip(dagger);
                 cout.print('Picked up dagger.');
+            }
+        });
+
+        triggers.push({
+            type: 'goal',
+            src: {
+                y: 60, x: 54, z: 1 // robot controller
+            },
+            state: 0,
+            action: function () {
+                var i, l;
+                cout.print('Found a robot pacifier.');
+
+                l = enemies.data.length;
+                for (i = 0; i < l; i += 1) {
+                    if (enemies.data[i].type === 'robotguard') {
+                        enemies.data[i].status = "FRIENDLY";
+                    }
+                }
             }
         });
 
@@ -1715,6 +1788,7 @@ var tilemap = {
                 canvas.drawMap(tiles, tilemap, camera);
                 canvas.drawPlayer(tiles, player);
                 canvas.drawEnemies(tiles, enemies);
+                canvas.drawForeground(tiles, tilemap, camera);
 
                 canvas.drawConsole(tiles, cout, camera);
 
